@@ -64,6 +64,35 @@ void main() {
       expect(capturedRequest.headers['authorization'], 'Bearer test-token');
     });
 
+    test('gets the current user with JSON and bearer headers', () async {
+      late http.Request capturedRequest;
+      final client = MockClient((request) async {
+        capturedRequest = request;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'id': 42},
+          }),
+          200,
+        );
+      });
+      final apiClient = ApiClient(
+        baseUri: Uri.parse('https://api.pelekapro.example'),
+        client: client,
+      );
+
+      await apiClient.getJson('/api/auth/me', bearerToken: 'stored-token');
+
+      expect(capturedRequest.method, 'GET');
+      expect(
+        capturedRequest.url,
+        Uri.parse('https://api.pelekapro.example/api/auth/me'),
+      );
+      expect(capturedRequest.headers['accept'], 'application/json');
+      expect(capturedRequest.headers['content-type'], 'application/json');
+      expect(capturedRequest.headers['authorization'], 'Bearer stored-token');
+    });
+
     test('maps validation responses to field errors', () async {
       final client = MockClient((_) async {
         return http.Response(

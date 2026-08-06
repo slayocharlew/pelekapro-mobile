@@ -59,8 +59,50 @@ void main() {
         throwsA(isA<ApiException>()),
       );
     });
+
+    test('gets and parses the documented current driver response', () async {
+      late http.Request capturedRequest;
+      final httpClient = MockClient((request) async {
+        capturedRequest = request;
+        return http.Response(jsonEncode(_currentDriverResponse), 200);
+      });
+      final dataSource = AuthRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: httpClient,
+        ),
+      );
+
+      final user = await dataSource.currentUser('stored-token');
+
+      expect(capturedRequest.method, 'GET');
+      expect(capturedRequest.url.path, '/api/auth/me');
+      expect(capturedRequest.headers['authorization'], 'Bearer stored-token');
+      expect(user.name, 'Driver Name');
+      expect(user.role, 'driver');
+      expect(user.driverProfile?.currentStatus, 'available');
+    });
   });
 }
+
+const _currentDriverResponse = {
+  'success': true,
+  'data': {
+    'id': 42,
+    'business_id': 7,
+    'branch_id': 3,
+    'name': 'Driver Name',
+    'phone': '+255700000000',
+    'email': 'driver@example.com',
+    'status': 'active',
+    'role': 'driver',
+    'driver_profile': {
+      'id': 9,
+      'is_available': true,
+      'current_status': 'available',
+    },
+  },
+};
 
 const _loginResponse = {
   'success': true,

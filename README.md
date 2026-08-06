@@ -91,7 +91,7 @@ The forwarding rule is temporary. Run `adb reverse` again after reconnecting or 
 
 Debug Android builds permit cleartext HTTP for local Laravel development. Release builds do not enable unrestricted cleartext traffic and must use HTTPS.
 
-## Driver login
+## Driver authentication
 
 The login screen consumes `POST /api/auth/login` with the phone number or email, password, and Android device name. Start the app with the API URL supplied at build time:
 
@@ -103,11 +103,13 @@ The authentication code is separated by responsibility under `lib/features/auth`
 
 - `data` sends login/logout requests and implements the repository.
 - `domain` contains the session, user, driver-profile, repository, and failure types.
-- `presentation` contains the controller, login screen, feedback widget, and temporary success screen.
+- `presentation` contains the startup auth flow, controllers, login UI, retry state, and verified driver profile.
 - `lib/core/network` contains the shared JSON API client.
 - `lib/core/storage` stores session credentials with Android secure storage.
 
 The app accepts only a response whose authenticated user has the `driver` role. A token issued for another role is revoked immediately and is not stored. Driver tokens are never printed or included in UI messages. API validation errors are shown beside the matching form fields.
+
+On startup, the app reads the encrypted token and consumes `GET /api/auth/me`. A valid driver opens the verified profile, an expired or revoked token is removed before returning to login, and a temporary server or network failure preserves the token and offers Retry.
 
 Android Auto Backup is disabled so encrypted storage keys cannot become detached from restored ciphertext. Local HTTP remains limited to debug builds; use an HTTPS API URL for production.
 
@@ -142,20 +144,20 @@ Implemented:
 - Laravel Sanctum driver login
 - Driver-role enforcement
 - Secure token storage
+- Stored-session restoration through `GET /api/auth/me`
+- Authenticated driver profile and manual refresh
 - API, repository, controller, and UI error handling
 
 Next phases:
 
-1. Restore and validate the stored session when the app starts
-2. Authenticated driver profile
-3. Assigned-delivery list
-4. Delivery details
-5. Start delivery
-6. Foreground GPS collection
-7. GPS submissions approximately every five seconds
-8. Proof capture and upload
-9. Cash/payment recording
-10. Mark delivered or failed
-11. Stop GPS immediately on delivered, failed, or cancelled
-12. Reverb integration where required
-13. Production Android signing and configuration
+1. Assigned-delivery list
+2. Delivery details
+3. Start delivery
+4. Foreground GPS collection
+5. GPS submissions approximately every five seconds
+6. Proof capture and upload
+7. Cash/payment recording
+8. Mark delivered or failed
+9. Stop GPS immediately on delivered, failed, or cancelled
+10. Reverb integration where required
+11. Production Android signing and configuration

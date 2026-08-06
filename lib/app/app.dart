@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
-import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
+import 'package:pelekapro_mobile/features/auth/presentation/auth_flow.dart';
 
 class PelekaProApp extends StatelessWidget {
   const PelekaProApp({super.key, this.authRepository});
@@ -14,7 +14,7 @@ class PelekaProApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'PelekaPro',
       theme: AppTheme.light(),
-      home: OnboardingScreen(authRepository: authRepository),
+      home: AuthFlow(repository: authRepository),
     );
   }
 }

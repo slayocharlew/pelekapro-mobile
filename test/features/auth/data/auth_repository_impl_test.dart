@@ -8,6 +8,7 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_failure.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
+import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
 
 void main() {
   group('AuthRepositoryImpl', () {
@@ -18,6 +19,7 @@ void main() {
         remoteDataSource: remote,
         tokenStorage: storage,
         deviceName: 'PelekaPro Android',
+        now: _now,
       );
 
       final session = await repository.login(
@@ -44,6 +46,7 @@ void main() {
         remoteDataSource: remote,
         tokenStorage: storage,
         deviceName: 'PelekaPro Android',
+        now: _now,
       );
 
       await expectLater(
@@ -77,6 +80,7 @@ void main() {
         remoteDataSource: remote,
         tokenStorage: _MemoryTokenStorage(),
         deviceName: 'PelekaPro Android',
+        now: _now,
       );
 
       await expectLater(
@@ -97,6 +101,7 @@ void main() {
         remoteDataSource: remote,
         tokenStorage: _MemoryTokenStorage(shouldFail: true),
         deviceName: 'PelekaPro Android',
+        now: _now,
       );
 
       await expectLater(
@@ -112,16 +117,207 @@ void main() {
 
       expect(remote.revokedToken, 'server-token');
     });
+
+    test('reports when no secure session exists', () async {
+      final remote = _FakeAuthRemoteDataSource();
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: _MemoryTokenStorage(),
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      final result = await repository.restoreSession();
+
+      expect(
+        result,
+        isA<UnavailableSession>().having(
+          (session) => session.hadStoredSession,
+          'hadStoredSession',
+          isFalse,
+        ),
+      );
+      expect(remote.currentUserToken, isNull);
+    });
+
+    test('restores a non-expired driver through auth me', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        restoredUser: _driverSession.user,
+      );
+      final storage = _MemoryTokenStorage(
+        initialToken: StoredAuthToken(
+          accessToken: 'stored-token',
+          tokenType: 'Bearer',
+          expiresAt: DateTime.parse('2026-09-05T10:30:00Z'),
+        ),
+      );
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      final result = await repository.restoreSession();
+
+      expect(
+        result,
+        isA<RestoredSession>().having(
+          (session) => session.user.name,
+          'user name',
+          'Driver Name',
+        ),
+      );
+      expect(remote.currentUserToken, 'stored-token');
+      expect(storage.clearCount, 0);
+    });
+
+    test('clears an expired token without calling auth me', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        restoredUser: _driverSession.user,
+      );
+      final storage = _MemoryTokenStorage(
+        initialToken: StoredAuthToken(
+          accessToken: 'expired-token',
+          tokenType: 'Bearer',
+          expiresAt: DateTime.parse('2026-08-01T10:30:00Z'),
+        ),
+      );
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      final result = await repository.restoreSession();
+
+      expect(
+        result,
+        isA<UnavailableSession>().having(
+          (session) => session.hadStoredSession,
+          'hadStoredSession',
+          isTrue,
+        ),
+      );
+      expect(remote.currentUserToken, isNull);
+      expect(storage.savedToken, isNull);
+      expect(storage.clearCount, 1);
+    });
+
+    test('clears a token rejected by auth me with 401', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        currentUserError: ApiException(
+          message: 'Unauthenticated.',
+          statusCode: 401,
+        ),
+      );
+      final storage = _MemoryTokenStorage(
+        initialToken: const StoredAuthToken(
+          accessToken: 'revoked-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      final result = await repository.restoreSession();
+
+      expect(result, isA<UnavailableSession>());
+      expect(remote.currentUserToken, 'revoked-token');
+      expect(storage.savedToken, isNull);
+      expect(storage.clearCount, 1);
+    });
+
+    test('keeps the token when auth me is temporarily unavailable', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        currentUserError: ApiException(
+          message: 'PelekaPro is temporarily unavailable. Please try again.',
+          statusCode: 503,
+        ),
+      );
+      const token = StoredAuthToken(
+        accessToken: 'stored-token',
+        tokenType: 'Bearer',
+      );
+      final storage = _MemoryTokenStorage(initialToken: token);
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      await expectLater(
+        repository.restoreSession(),
+        throwsA(
+          isA<AuthFailure>()
+              .having((error) => error.statusCode, 'statusCode', 503)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('temporarily unavailable'),
+              ),
+        ),
+      );
+
+      expect(storage.savedToken, same(token));
+      expect(storage.clearCount, 0);
+    });
+
+    test('revokes and clears a restored non-driver session', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        restoredUser: _sessionForRole('manager').user,
+      );
+      final storage = _MemoryTokenStorage(
+        initialToken: const StoredAuthToken(
+          accessToken: 'manager-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      final result = await repository.restoreSession();
+
+      expect(
+        result,
+        isA<UnavailableSession>().having(
+          (session) => session.hadStoredSession,
+          'hadStoredSession',
+          isTrue,
+        ),
+      );
+      expect(remote.revokedToken, 'manager-token');
+      expect(storage.savedToken, isNull);
+      expect(storage.clearCount, 1);
+    });
   });
 }
 
 class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
-  _FakeAuthRemoteDataSource({this.session, this.error});
+  _FakeAuthRemoteDataSource({
+    this.session,
+    this.error,
+    this.restoredUser,
+    this.currentUserError,
+  });
 
   final AuthSession? session;
   final ApiException? error;
+  final AuthUser? restoredUser;
+  final ApiException? currentUserError;
   LoginRequest? lastRequest;
   String? revokedToken;
+  String? currentUserToken;
 
   @override
   Future<AuthSession> login(LoginRequest request) async {
@@ -140,14 +336,27 @@ class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
   }
 
   @override
+  Future<AuthUser> currentUser(String accessToken) async {
+    currentUserToken = accessToken;
+
+    if (currentUserError case final error?) {
+      throw error;
+    }
+
+    return restoredUser!;
+  }
+
+  @override
   void close() {}
 }
 
 class _MemoryTokenStorage implements TokenStorage {
-  _MemoryTokenStorage({this.shouldFail = false});
+  _MemoryTokenStorage({this.shouldFail = false, StoredAuthToken? initialToken})
+    : savedToken = initialToken;
 
   final bool shouldFail;
   StoredAuthToken? savedToken;
+  int clearCount = 0;
 
   @override
   Future<void> save(StoredAuthToken token) async {
@@ -163,9 +372,12 @@ class _MemoryTokenStorage implements TokenStorage {
 
   @override
   Future<void> clear() async {
+    clearCount += 1;
     savedToken = null;
   }
 }
+
+DateTime _now() => DateTime.parse('2026-08-06T10:30:00Z');
 
 final _driverSession = AuthSession(
   accessToken: 'server-token',

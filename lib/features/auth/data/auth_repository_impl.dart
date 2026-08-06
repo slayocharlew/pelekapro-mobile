@@ -5,17 +5,67 @@ import 'package:pelekapro_mobile/features/auth/data/models/login_request.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_failure.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
+import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({
     required this.remoteDataSource,
     required this.tokenStorage,
     required this.deviceName,
+    required this.now,
   });
 
   final AuthRemoteDataSource remoteDataSource;
   final TokenStorage tokenStorage;
   final String deviceName;
+  final DateTime Function() now;
+
+  @override
+  Future<SessionRestoreResult> restoreSession() async {
+    late final StoredAuthToken? storedToken;
+
+    try {
+      storedToken = await tokenStorage.read();
+    } on Object {
+      throw AuthFailure(
+        message:
+            'The secure session could not be read. Restart the app and try again.',
+      );
+    }
+
+    if (storedToken == null) {
+      return const UnavailableSession(hadStoredSession: false);
+    }
+
+    final expiresAt = storedToken.expiresAt;
+
+    if (expiresAt != null && !expiresAt.toUtc().isAfter(now().toUtc())) {
+      await _clearStoredSession();
+      return const UnavailableSession(hadStoredSession: true);
+    }
+
+    late final AuthUser user;
+
+    try {
+      user = await remoteDataSource.currentUser(storedToken.accessToken);
+    } on ApiException catch (error) {
+      if (error.statusCode == 401) {
+        await _clearStoredSession();
+        return const UnavailableSession(hadStoredSession: true);
+      }
+
+      throw _authFailureFrom(error);
+    }
+
+    if (!_isDriver(user)) {
+      await _revokeSilently(storedToken.accessToken);
+      await _clearStoredSession();
+      return const UnavailableSession(hadStoredSession: true);
+    }
+
+    return RestoredSession(user);
+  }
 
   @override
   Future<AuthSession> login({
@@ -33,14 +83,10 @@ class AuthRepositoryImpl implements AuthRepository {
         ),
       );
     } on ApiException catch (error) {
-      throw AuthFailure(
-        message: error.message,
-        statusCode: error.statusCode,
-        fieldErrors: error.fieldErrors,
-      );
+      throw _authFailureFrom(error);
     }
 
-    if (session.user.role.toLowerCase() != 'driver') {
+    if (!_isDriver(session.user)) {
       await _revokeSilently(session.accessToken);
       throw AuthFailure(
         message: 'PelekaPro is available only to driver accounts.',
@@ -66,6 +112,30 @@ class AuthRepositoryImpl implements AuthRepository {
     }
 
     return session;
+  }
+
+  bool _isDriver(AuthUser user) {
+    return user.role.toLowerCase() == 'driver' && user.driverProfile != null;
+  }
+
+  AuthFailure _authFailureFrom(ApiException error) {
+    return AuthFailure(
+      message: error.message,
+      statusCode: error.statusCode,
+      fieldErrors: error.fieldErrors,
+    );
+  }
+
+  Future<void> _clearStoredSession() async {
+    try {
+      await tokenStorage.clear();
+    } on Object {
+      throw AuthFailure(
+        message:
+            'The expired session could not be removed securely. '
+            'Restart the app and try again.',
+      );
+    }
   }
 
   Future<void> _revokeSilently(String accessToken) async {

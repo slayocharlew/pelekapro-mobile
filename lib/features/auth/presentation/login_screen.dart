@@ -5,14 +5,16 @@ import 'package:flutter/services.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/auth_composition.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/login_controller.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/login_success_screen.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/widgets/login_error_banner.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, this.repository});
+  const LoginScreen({super.key, this.repository, this.onAuthenticated});
 
   final AuthRepository? repository;
+  final ValueChanged<AuthUser>? onAuthenticated;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -77,6 +79,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     _passwordController.clear();
     TextInput.finishAutofillContext();
+
+    if (widget.onAuthenticated case final onAuthenticated?) {
+      onAuthenticated(session.user);
+      return;
+    }
 
     unawaited(
       Navigator.of(context).pushReplacement<void, void>(

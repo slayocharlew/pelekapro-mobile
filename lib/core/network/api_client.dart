@@ -21,28 +21,42 @@ class ApiClient {
   final http.Client _client;
   final bool _ownsClient;
 
+  Future<JsonObject> getJson(String endpoint, {String? bearerToken}) {
+    final headers = _headers(bearerToken: bearerToken);
+
+    return _sendJson(() => _client.get(_resolve(endpoint), headers: headers));
+  }
+
   Future<JsonObject> postJson(
     String endpoint, {
     JsonObject? body,
     String? bearerToken,
-  }) async {
-    final headers = <String, String>{
+  }) {
+    final headers = _headers(bearerToken: bearerToken);
+
+    return _sendJson(
+      () => _client.post(
+        _resolve(endpoint),
+        headers: headers,
+        body: body == null ? null : jsonEncode(body),
+      ),
+    );
+  }
+
+  Map<String, String> _headers({String? bearerToken}) {
+    return {
       HttpHeaders.acceptHeader: 'application/json',
       HttpHeaders.contentTypeHeader: 'application/json',
       if (bearerToken != null)
         HttpHeaders.authorizationHeader: 'Bearer $bearerToken',
     };
+  }
 
+  Future<JsonObject> _sendJson(Future<http.Response> Function() request) async {
     late final http.Response response;
 
     try {
-      response = await _client
-          .post(
-            _resolve(endpoint),
-            headers: headers,
-            body: body == null ? null : jsonEncode(body),
-          )
-          .timeout(requestTimeout);
+      response = await request().timeout(requestTimeout);
     } on TimeoutException {
       throw ApiException(
         message: 'The request timed out. Check your connection and try again.',

@@ -2,6 +2,7 @@ import 'package:pelekapro_mobile/core/network/api_client.dart';
 import 'package:pelekapro_mobile/core/network/api_exception.dart';
 import 'package:pelekapro_mobile/features/auth/data/models/login_request.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 
 class AuthRemoteDataSource {
   AuthRemoteDataSource(this._apiClient);
@@ -33,6 +34,29 @@ class AuthRemoteDataSource {
 
   Future<void> logout(String accessToken) async {
     await _apiClient.postJson('/api/auth/logout', bearerToken: accessToken);
+  }
+
+  Future<AuthUser> currentUser(String accessToken) async {
+    final response = await _apiClient.getJson(
+      '/api/auth/me',
+      bearerToken: accessToken,
+    );
+
+    if (response['success'] != true) {
+      throw ApiException.fromPayload(payload: response);
+    }
+
+    final data = response['data'];
+
+    if (data is! Map<String, dynamic>) {
+      throw ApiException.invalidResponse();
+    }
+
+    try {
+      return AuthUser.fromJson(data);
+    } on FormatException {
+      throw ApiException.invalidResponse();
+    }
   }
 
   void close() {

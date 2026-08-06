@@ -7,12 +7,12 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
+import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
 
 void main() {
   testWidgets('starts with the branded first onboarding page', (tester) async {
-    await tester.pumpWidget(const PelekaProApp());
-    await tester.pump();
+    await _pumpApp(tester);
 
     expect(find.text('PelekaPro'), findsOneWidget);
     expect(find.text('Deliveries made simple'), findsOneWidget);
@@ -39,8 +39,7 @@ void main() {
   testWidgets('Next advances through all three onboarding pages', (
     tester,
   ) async {
-    await tester.pumpWidget(const PelekaProApp());
-    await tester.pump();
+    await _pumpApp(tester);
 
     await tester.tap(find.byKey(const ValueKey('onboarding-next')));
     await tester.pump();
@@ -57,8 +56,7 @@ void main() {
   });
 
   testWidgets('onboarding supports swipe navigation', (tester) async {
-    await tester.pumpWidget(const PelekaProApp());
-    await tester.pump();
+    await _pumpApp(tester);
 
     await tester.drag(
       find.byKey(const ValueKey('onboarding-page-view')),
@@ -71,8 +69,7 @@ void main() {
   });
 
   testWidgets('Skip opens the login screen', (tester) async {
-    await tester.pumpWidget(const PelekaProApp());
-    await tester.pump();
+    await _pumpApp(tester);
 
     await tester.tap(find.byKey(const ValueKey('onboarding-skip')));
     await tester.pumpAndSettle();
@@ -85,8 +82,7 @@ void main() {
   });
 
   testWidgets('Get Started opens login from the final page', (tester) async {
-    await tester.pumpWidget(const PelekaProApp());
-    await tester.pump();
+    await _pumpApp(tester);
 
     for (var index = 0; index < 2; index++) {
       await tester.tap(find.byKey(const ValueKey('onboarding-next')));
@@ -135,7 +131,7 @@ void main() {
     );
   });
 
-  testWidgets('valid credentials open the login success screen', (
+  testWidgets('valid credentials open the verified driver profile', (
     tester,
   ) async {
     final repository = _FakeAuthRepository();
@@ -152,7 +148,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('login-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('login-success')), findsOneWidget);
+    expect(find.byKey(const ValueKey('driver-profile-screen')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('driver-session-verified')),
+      findsOneWidget,
+    );
     expect(find.text('Welcome, Test Driver'), findsOneWidget);
     expect(repository.lastLogin, '+255700000000');
     expect(repository.lastPassword, 'safe-test-password');
@@ -190,6 +190,66 @@ void main() {
     expect(find.text('The password is incorrect.'), findsOneWidget);
   });
 
+  testWidgets('restores a stored driver session on startup', (tester) async {
+    final repository = _FakeAuthRepository(
+      restoreResult: const RestoredSession(_testDriver),
+    );
+
+    await _pumpApp(tester, repository: repository);
+
+    expect(find.byKey(const ValueKey('driver-profile-screen')), findsOneWidget);
+    expect(find.text('Welcome, Test Driver'), findsOneWidget);
+    expect(find.text('Available'), findsNWidgets(2));
+    expect(find.text('Deliveries made simple'), findsNothing);
+    expect(repository.restoreCalls, 1);
+  });
+
+  testWidgets('a rejected stored session opens login', (tester) async {
+    final repository = _FakeAuthRepository(
+      restoreResult: const UnavailableSession(hadStoredSession: true),
+    );
+
+    await _pumpApp(tester, repository: repository);
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Deliveries made simple'), findsNothing);
+  });
+
+  testWidgets('session restore failure can be retried safely', (tester) async {
+    final repository = _FakeAuthRepository(
+      restoreFailure: AuthFailure(
+        message: 'Unable to reach PelekaPro. Check your connection.',
+      ),
+    );
+
+    await _pumpApp(tester, repository: repository);
+
+    expect(find.byKey(const ValueKey('session-error-screen')), findsOneWidget);
+    expect(find.text('Unable to restore session'), findsOneWidget);
+    expect(repository.restoreCalls, 1);
+
+    repository.restoreFailure = null;
+    await tester.tap(find.byKey(const ValueKey('session-retry')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Deliveries made simple'), findsOneWidget);
+    expect(repository.restoreCalls, 2);
+  });
+
+  testWidgets('refresh verifies the current driver again', (tester) async {
+    final repository = _FakeAuthRepository(
+      restoreResult: const RestoredSession(_testDriver),
+    );
+    await _pumpApp(tester, repository: repository);
+
+    await tester.tap(find.byKey(const ValueKey('profile-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('driver-profile-screen')), findsOneWidget);
+    expect(repository.restoreCalls, 2);
+  });
+
   testWidgets('illustration remains still when reduced motion is requested', (
     tester,
   ) async {
@@ -224,20 +284,43 @@ Future<void> _openLogin(
   WidgetTester tester, {
   AuthRepository? repository,
 }) async {
-  await tester.pumpWidget(
-    PelekaProApp(authRepository: repository ?? _FakeAuthRepository()),
-  );
-  await tester.pump();
+  await _pumpApp(tester, repository: repository ?? _FakeAuthRepository());
   await tester.tap(find.byKey(const ValueKey('onboarding-skip')));
   await tester.pumpAndSettle();
 }
 
+Future<void> _pumpApp(WidgetTester tester, {AuthRepository? repository}) async {
+  await tester.pumpWidget(
+    PelekaProApp(authRepository: repository ?? _FakeAuthRepository()),
+  );
+  await tester.pump();
+  await tester.pump();
+}
+
 class _FakeAuthRepository implements AuthRepository {
-  _FakeAuthRepository({this.failure});
+  _FakeAuthRepository({
+    this.failure,
+    this.restoreResult = const UnavailableSession(hadStoredSession: false),
+    this.restoreFailure,
+  });
 
   final AuthFailure? failure;
+  final SessionRestoreResult restoreResult;
+  AuthFailure? restoreFailure;
   String? lastLogin;
   String? lastPassword;
+  int restoreCalls = 0;
+
+  @override
+  Future<SessionRestoreResult> restoreSession() async {
+    restoreCalls += 1;
+
+    if (restoreFailure case final failure?) {
+      throw failure;
+    }
+
+    return restoreResult;
+  }
 
   @override
   Future<AuthSession> login({
@@ -254,24 +337,26 @@ class _FakeAuthRepository implements AuthRepository {
     return const AuthSession(
       accessToken: 'test-access-token',
       tokenType: 'Bearer',
-      user: AuthUser(
-        id: 42,
-        businessId: 7,
-        branchId: 3,
-        name: 'Test Driver',
-        phone: '+255700000000',
-        email: 'driver@example.com',
-        status: 'active',
-        role: 'driver',
-        driverProfile: DriverProfile(
-          id: 9,
-          isAvailable: true,
-          currentStatus: 'available',
-        ),
-      ),
+      user: _testDriver,
     );
   }
 
   @override
   void close() {}
 }
+
+const _testDriver = AuthUser(
+  id: 42,
+  businessId: 7,
+  branchId: 3,
+  name: 'Test Driver',
+  phone: '+255700000000',
+  email: 'driver@example.com',
+  status: 'active',
+  role: 'driver',
+  driverProfile: DriverProfile(
+    id: 9,
+    isAvailable: true,
+    currentStatus: 'available',
+  ),
+);
