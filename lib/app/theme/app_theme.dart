@@ -8,6 +8,8 @@ abstract final class AppColors {
   static const ink = Color(0xFF2B211D);
   static const mutedInk = Color(0xFF6E625D);
   static const border = Color(0xFFE7DDD8);
+  static const success = Color(0xFF2E7D32);
+  static const error = Color(0xFFBA1A1A);
 }
 
 abstract final class AppTheme {

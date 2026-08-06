@@ -1,11 +1,11 @@
-# PelekaPro Mobile
+# PelekaPro
 
-PelekaPro Mobile is the Android driver application for PelekaPro, a delivery-management and live-tracking platform for businesses that manage their own drivers. It is maintained separately from the Laravel backend and initially targets Android only.
+PelekaPro is the Android driver application for the PelekaPro delivery-management and live-tracking platform. This Flutter project is maintained separately from the Laravel backend and targets Android only.
 
 ## Architecture
 
 ```text
-PelekaPro Mobile
+PelekaPro Android app
         ↓
 Laravel Sanctum API
         ↓
@@ -80,7 +80,36 @@ php artisan serve --host=0.0.0.0 --port=8000
 
 `127.0.0.1` on a physical phone means the phone itself, not the Mac. The Mac and phone must be on the same trusted local network, and macOS may ask for permission to accept incoming connections.
 
+While developing over an authorized USB connection, `adb reverse` can forward the phone's port 8000 to a Laravel server listening on the Mac's localhost. This avoids exposing the development server to the LAN:
+
+```bash
+adb -s DEVICE_ID reverse tcp:8000 tcp:8000
+flutter run -d DEVICE_ID --dart-define=API_BASE_URL=http://127.0.0.1:8000
+```
+
+The forwarding rule is temporary. Run `adb reverse` again after reconnecting or restarting the phone.
+
 Debug Android builds permit cleartext HTTP for local Laravel development. Release builds do not enable unrestricted cleartext traffic and must use HTTPS.
+
+## Driver login
+
+The login screen consumes `POST /api/auth/login` with the phone number or email, password, and Android device name. Start the app with the API URL supplied at build time:
+
+```bash
+flutter run -d DEVICE_ID --dart-define=API_BASE_URL=http://MAC_LAN_IP:8000
+```
+
+The authentication code is separated by responsibility under `lib/features/auth`:
+
+- `data` sends login/logout requests and implements the repository.
+- `domain` contains the session, user, driver-profile, repository, and failure types.
+- `presentation` contains the controller, login screen, feedback widget, and temporary success screen.
+- `lib/core/network` contains the shared JSON API client.
+- `lib/core/storage` stores session credentials with Android secure storage.
+
+The app accepts only a response whose authenticated user has the `driver` role. A token issued for another role is revoked immediately and is not stored. Driver tokens are never printed or included in UI messages. API validation errors are shown beside the matching form fields.
+
+Android Auto Backup is disabled so encrypted storage keys cannot become detached from restored ciphertext. Local HTTP remains limited to debug builds; use an HTTPS API URL for production.
 
 ## Verification and builds
 
@@ -106,22 +135,27 @@ build/app/outputs/flutter-apk/app-debug.apk
 
 Build output, machine-local SDK paths, changing LAN addresses, signing keys, passwords, tokens, and other secrets must never be committed.
 
-## Planned mobile roadmap
+## Mobile roadmap
 
-1. Laravel Sanctum driver login
-2. Secure token storage
-3. Authenticated driver profile
-4. Assigned-delivery list
-5. Delivery details
-6. Start delivery
-7. Foreground GPS collection
-8. GPS submissions approximately every five seconds
-9. Proof capture and upload
-10. Cash/payment recording
-11. Mark delivered
-12. Mark failed
-13. Stop GPS immediately on delivered, failed, or cancelled
-14. Reverb integration where required
-15. Production Android configuration
+Implemented:
 
-The next implementation phase is Laravel Sanctum driver login. Authentication, API calls, GPS, maps, proof uploads, payments, and Reverb integration are intentionally outside this initial setup.
+- Laravel Sanctum driver login
+- Driver-role enforcement
+- Secure token storage
+- API, repository, controller, and UI error handling
+
+Next phases:
+
+1. Restore and validate the stored session when the app starts
+2. Authenticated driver profile
+3. Assigned-delivery list
+4. Delivery details
+5. Start delivery
+6. Foreground GPS collection
+7. GPS submissions approximately every five seconds
+8. Proof capture and upload
+9. Cash/payment recording
+10. Mark delivered or failed
+11. Stop GPS immediately on delivered, failed, or cancelled
+12. Reverb integration where required
+13. Production Android signing and configuration

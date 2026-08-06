@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
-import 'package:pelekapro_mobile/features/auth/login_screen.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
+import 'package:pelekapro_mobile/features/auth/presentation/login_screen.dart';
 import 'package:pelekapro_mobile/features/onboarding/widgets/onboarding_illustration.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({super.key});
+  const OnboardingScreen({super.key, this.authRepository});
+
+  final AuthRepository? authRepository;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -68,7 +71,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     _isLeaving = true;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      MaterialPageRoute<void>(
+        builder: (_) => LoginScreen(repository: widget.authRepository),
+      ),
     );
   }
 

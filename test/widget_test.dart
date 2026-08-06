@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pelekapro_mobile/app/app.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_failure.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
+import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
+import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
 
 void main() {
@@ -130,10 +135,11 @@ void main() {
     );
   });
 
-  testWidgets('valid local form reports the next integration phase', (
+  testWidgets('valid credentials open the login success screen', (
     tester,
   ) async {
-    await _openLogin(tester);
+    final repository = _FakeAuthRepository();
+    await _openLogin(tester, repository: repository);
 
     await tester.enterText(
       find.byKey(const ValueKey('login-identifier')),
@@ -144,12 +150,44 @@ void main() {
       'safe-test-password',
     );
     await tester.tap(find.byKey(const ValueKey('login-submit')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(
-      find.text('Secure login will be connected in the next phase.'),
-      findsOneWidget,
+    expect(find.byKey(const ValueKey('login-success')), findsOneWidget);
+    expect(find.text('Welcome, Test Driver'), findsOneWidget);
+    expect(repository.lastLogin, '+255700000000');
+    expect(repository.lastPassword, 'safe-test-password');
+  });
+
+  testWidgets('API validation errors appear beside the login fields', (
+    tester,
+  ) async {
+    final repository = _FakeAuthRepository(
+      failure: AuthFailure(
+        message: 'Validation failed',
+        statusCode: 422,
+        fieldErrors: const {
+          'login': ['Use a valid phone number or email.'],
+          'password': ['The password is incorrect.'],
+        },
+      ),
     );
+    await _openLogin(tester, repository: repository);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('login-identifier')),
+      'invalid-driver',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('login-password')),
+      'wrong-password',
+    );
+    await tester.tap(find.byKey(const ValueKey('login-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('login-error-banner')), findsOneWidget);
+    expect(find.text('Validation failed'), findsOneWidget);
+    expect(find.text('Use a valid phone number or email.'), findsOneWidget);
+    expect(find.text('The password is incorrect.'), findsOneWidget);
   });
 
   testWidgets('illustration remains still when reduced motion is requested', (
@@ -182,9 +220,58 @@ void main() {
   });
 }
 
-Future<void> _openLogin(WidgetTester tester) async {
-  await tester.pumpWidget(const PelekaProApp());
+Future<void> _openLogin(
+  WidgetTester tester, {
+  AuthRepository? repository,
+}) async {
+  await tester.pumpWidget(
+    PelekaProApp(authRepository: repository ?? _FakeAuthRepository()),
+  );
   await tester.pump();
   await tester.tap(find.byKey(const ValueKey('onboarding-skip')));
   await tester.pumpAndSettle();
+}
+
+class _FakeAuthRepository implements AuthRepository {
+  _FakeAuthRepository({this.failure});
+
+  final AuthFailure? failure;
+  String? lastLogin;
+  String? lastPassword;
+
+  @override
+  Future<AuthSession> login({
+    required String login,
+    required String password,
+  }) async {
+    lastLogin = login;
+    lastPassword = password;
+
+    if (failure case final failure?) {
+      throw failure;
+    }
+
+    return const AuthSession(
+      accessToken: 'test-access-token',
+      tokenType: 'Bearer',
+      user: AuthUser(
+        id: 42,
+        businessId: 7,
+        branchId: 3,
+        name: 'Test Driver',
+        phone: '+255700000000',
+        email: 'driver@example.com',
+        status: 'active',
+        role: 'driver',
+        driverProfile: DriverProfile(
+          id: 9,
+          isAvailable: true,
+          currentStatus: 'available',
+        ),
+      ),
+    );
+  }
+
+  @override
+  void close() {}
 }
