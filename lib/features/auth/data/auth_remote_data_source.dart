@@ -33,7 +33,14 @@ class AuthRemoteDataSource {
   }
 
   Future<void> logout(String accessToken) async {
-    await _apiClient.postJson('/api/auth/logout', bearerToken: accessToken);
+    final response = await _apiClient.postJson(
+      '/api/auth/logout',
+      bearerToken: accessToken,
+    );
+
+    if (response['success'] != true) {
+      throw ApiException.fromPayload(payload: response);
+    }
   }
 
   Future<AuthUser> currentUser(String accessToken) async {

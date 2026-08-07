@@ -300,6 +300,89 @@ void main() {
       expect(storage.savedToken, isNull);
       expect(storage.clearCount, 1);
     });
+
+    test('logs out the current token and clears secure storage', () async {
+      final remote = _FakeAuthRemoteDataSource();
+      final storage = _MemoryTokenStorage(
+        initialToken: const StoredAuthToken(
+          accessToken: 'current-device-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      await repository.logout();
+
+      expect(remote.revokedToken, 'current-device-token');
+      expect(storage.savedToken, isNull);
+      expect(storage.clearCount, 1);
+    });
+
+    test('clears a token already rejected during logout', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        logoutError: ApiException(message: 'Unauthenticated.', statusCode: 401),
+      );
+      final storage = _MemoryTokenStorage(
+        initialToken: const StoredAuthToken(
+          accessToken: 'already-revoked-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      await repository.logout();
+
+      expect(remote.revokedToken, 'already-revoked-token');
+      expect(storage.savedToken, isNull);
+      expect(storage.clearCount, 1);
+    });
+
+    test('keeps the token when logout temporarily fails', () async {
+      final remote = _FakeAuthRemoteDataSource(
+        logoutError: ApiException(
+          message: 'PelekaPro is temporarily unavailable. Please try again.',
+          statusCode: 503,
+        ),
+      );
+      const token = StoredAuthToken(
+        accessToken: 'retryable-token',
+        tokenType: 'Bearer',
+      );
+      final storage = _MemoryTokenStorage(initialToken: token);
+      final repository = AuthRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        deviceName: 'PelekaPro Android',
+        now: _now,
+      );
+
+      await expectLater(
+        repository.logout(),
+        throwsA(
+          isA<AuthFailure>()
+              .having((error) => error.statusCode, 'statusCode', 503)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('temporarily unavailable'),
+              ),
+        ),
+      );
+
+      expect(remote.revokedToken, 'retryable-token');
+      expect(storage.savedToken, same(token));
+      expect(storage.clearCount, 0);
+    });
   });
 }
 
@@ -309,12 +392,14 @@ class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
     this.error,
     this.restoredUser,
     this.currentUserError,
+    this.logoutError,
   });
 
   final AuthSession? session;
   final ApiException? error;
   final AuthUser? restoredUser;
   final ApiException? currentUserError;
+  final ApiException? logoutError;
   LoginRequest? lastRequest;
   String? revokedToken;
   String? currentUserToken;
@@ -333,6 +418,10 @@ class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
   @override
   Future<void> logout(String accessToken) async {
     revokedToken = accessToken;
+
+    if (logoutError case final error?) {
+      throw error;
+    }
   }
 
   @override

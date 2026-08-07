@@ -101,15 +101,35 @@ flutter run -d DEVICE_ID --dart-define=API_BASE_URL=http://MAC_LAN_IP:8000
 
 The authentication code is separated by responsibility under `lib/features/auth`:
 
-- `data` sends login/logout requests and implements the repository.
+- `data` sends login, current-user, and logout requests and implements the repository.
 - `domain` contains the session, user, driver-profile, repository, and failure types.
-- `presentation` contains the startup auth flow, controllers, login UI, retry state, and verified driver profile.
+- `presentation` contains the startup auth flow, controllers, login UI, and retry state.
+- `lib/features/account` renders the current driver returned by `GET /api/auth/me` and current-device security actions.
+- `lib/features/shell` owns the Deliveries, Active, and Account navigation.
+- `lib/features/deliveries/demo` contains isolated Tanzanian UI fixtures and local-only transitions.
+- `lib/features/deliveries/presentation` contains the approved delivery workflow screens without delivery networking.
+- `lib/shared/widgets` contains the PelekaPro brand mark, card, button, and status components.
 - `lib/core/network` contains the shared JSON API client.
 - `lib/core/storage` stores session credentials with Android secure storage.
 
 The app accepts only a response whose authenticated user has the `driver` role. A token issued for another role is revoked immediately and is not stored. Driver tokens are never printed or included in UI messages. API validation errors are shown beside the matching form fields.
 
-On startup, the app reads the encrypted token and consumes `GET /api/auth/me`. A valid driver opens the verified profile, an expired or revoked token is removed before returning to login, and a temporary server or network failure preserves the token and offers Retry.
+On startup, the app reads the encrypted token and consumes `GET /api/auth/me`. A valid driver opens the driver workspace and Account tab, an expired or revoked token is removed before returning to login, and a temporary server or network failure preserves the token and offers Retry.
+
+The Account tab consumes `POST /api/auth/logout`. It asks for confirmation, revokes only the current bearer token, removes it from secure storage, clears private in-memory state, and returns to login. A recoverable server failure keeps the secure session so the driver can retry.
+
+## Delivery UI approval build
+
+After authentication, delivery content currently comes only from `lib/features/deliveries/demo`. It does not fetch assignments, change Laravel state, collect GPS, open the camera, upload proof, or record money. The complete UI journey is available locally for approval:
+
+- assigned deliveries → details → start → active navigation;
+- active navigation → mark delivered → delivered result;
+- active navigation → report issue → failed result;
+- either result → back to deliveries.
+
+Start, delivered, and failed transitions update only the in-memory demo store. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions. The custom navigation composition follows an OpenStreetMap visual direction with a top-down motorcycle marker; no map, routing, location, or navigation SDK is connected yet.
+
+The approved screenshots remain in `UI/` as design references. That directory is deliberately absent from `pubspec.yaml` assets and is not bundled into the Android application.
 
 Android Auto Backup is disabled so encrypted storage keys cannot become detached from restored ciphertext. Local HTTP remains limited to debug builds; use an HTTPS API URL for production.
 
@@ -145,19 +165,21 @@ Implemented:
 - Driver-role enforcement
 - Secure token storage
 - Stored-session restoration through `GET /api/auth/me`
-- Authenticated driver profile and manual refresh
+- Deliveries, Active, and Account application shell
+- Authenticated Account profile and manual refresh
+- Current-device logout through `POST /api/auth/logout`
+- Complete local UI journey for delivery design approval
 - API, repository, controller, and UI error handling
 
 Next phases:
 
-1. Assigned-delivery list
-2. Delivery details
-3. Start delivery
-4. Foreground GPS collection
-5. GPS submissions approximately every five seconds
-6. Proof capture and upload
-7. Cash/payment recording
-8. Mark delivered or failed
-9. Stop GPS immediately on delivered, failed, or cancelled
-10. Reverb integration where required
-11. Production Android signing and configuration
+1. Consume assigned-delivery list and detail APIs in the prepared UI
+2. Connect the start transition
+3. Add foreground GPS collection and submissions approximately every five seconds
+4. Connect proof capture and upload
+5. Connect delivered, failed, PIN, and payment workflows
+6. Stop GPS immediately on delivered, failed, or cancelled
+7. Connect authorized tracking history
+8. Consume logout-all when required
+9. Add Reverb integration where required
+10. Add production Android signing and configuration

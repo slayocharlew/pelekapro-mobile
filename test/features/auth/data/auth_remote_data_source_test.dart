@@ -82,6 +82,61 @@ void main() {
       expect(user.role, 'driver');
       expect(user.driverProfile?.currentStatus, 'available');
     });
+
+    test('logs out the current device with its bearer token', () async {
+      late http.Request capturedRequest;
+      final httpClient = MockClient((request) async {
+        capturedRequest = request;
+        return http.Response(
+          jsonEncode({'success': true, 'message': 'Current token revoked.'}),
+          200,
+        );
+      });
+      final dataSource = AuthRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: httpClient,
+        ),
+      );
+
+      await dataSource.logout('current-device-token');
+
+      expect(capturedRequest.method, 'POST');
+      expect(capturedRequest.url.path, '/api/auth/logout');
+      expect(
+        capturedRequest.headers['authorization'],
+        'Bearer current-device-token',
+      );
+    });
+
+    test('rejects an unsuccessful logout envelope', () async {
+      final httpClient = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'success': false,
+            'message': 'Logout could not be completed.',
+          }),
+          200,
+        );
+      });
+      final dataSource = AuthRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: httpClient,
+        ),
+      );
+
+      await expectLater(
+        dataSource.logout('current-device-token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            'Logout could not be completed.',
+          ),
+        ),
+      );
+    });
   });
 }
 

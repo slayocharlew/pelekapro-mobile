@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
+import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 
 class SessionErrorScreen extends StatelessWidget {
   const SessionErrorScreen({
@@ -18,51 +20,45 @@ class SessionErrorScreen extends StatelessWidget {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.xl),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
+              constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
                 children: [
                   Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.1),
+                    width: 58,
+                    height: 58,
+                    decoration: const BoxDecoration(
+                      color: AppColors.errorSoft,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      Icons.cloud_off_rounded,
+                      Icons.cloud_off_outlined,
                       color: AppColors.error,
-                      size: 38,
+                      size: 28,
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppSpacing.lg),
                   Text(
-                    'Unable to restore session',
+                    'Something went wrong',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: AppColors.ink,
-                      fontWeight: FontWeight.w900,
-                    ),
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     message,
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    style: const TextStyle(
                       color: AppColors.mutedInk,
-                      height: 1.5,
+                      fontSize: 14,
                     ),
                   ),
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      key: const ValueKey('session-retry'),
-                      onPressed: onRetry,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Retry'),
-                    ),
+                  const SizedBox(height: AppSpacing.xl),
+                  PrimaryButton(
+                    key: const ValueKey('session-retry'),
+                    label: 'Retry',
+                    icon: Icons.refresh_rounded,
+                    onPressed: onRetry,
                   ),
                 ],
               ),

@@ -57,6 +57,24 @@ class _UnconfiguredAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> logout() async {
+    try {
+      final storedToken = await _tokenStorage.read();
+
+      if (storedToken == null) {
+        return;
+      }
+    } on Object {
+      throw AuthFailure(
+        message:
+            'The secure session could not be read. Restart the app and try again.',
+      );
+    }
+
+    throw AuthFailure(message: _configurationMessage);
+  }
+
+  @override
   void close() {}
 }
 

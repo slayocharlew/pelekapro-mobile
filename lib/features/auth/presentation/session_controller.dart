@@ -4,7 +4,7 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
 
-enum SessionStatus { checking, onboarding, login, authenticated, failure }
+enum SessionStatus { checking, login, authenticated, failure }
 
 class SessionController extends ChangeNotifier {
   SessionController(this._repository);
@@ -38,11 +38,9 @@ class SessionController extends ChangeNotifier {
         case RestoredSession(:final user):
           _user = user;
           _status = SessionStatus.authenticated;
-        case UnavailableSession(:final hadStoredSession):
+        case UnavailableSession():
           _user = null;
-          _status = hadStoredSession
-              ? SessionStatus.login
-              : SessionStatus.onboarding;
+          _status = SessionStatus.login;
       }
     } on AuthFailure catch (error) {
       _errorMessage = error.message;
@@ -57,6 +55,7 @@ class SessionController extends ChangeNotifier {
   }
 
   void showLogin() {
+    _user = null;
     _status = SessionStatus.login;
     _errorMessage = null;
     _notifyIfActive();

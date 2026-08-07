@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/auth_composition.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
@@ -9,6 +10,8 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/login_controller.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/login_success_screen.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/widgets/login_error_banner.dart';
+import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
+import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.repository, this.onAuthenticated});
@@ -99,67 +102,42 @@ class _LoginScreenState extends State<LoginScreen> {
     final isSubmitting = _loginController.isSubmitting;
 
     return Scaffold(
+      key: const ValueKey('login-screen'),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.page,
+              vertical: AppSpacing.xl,
+            ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
+              constraints: const BoxConstraints(maxWidth: 440),
               child: AutofillGroup(
                 child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          width: 66,
-                          height: 66,
-                          decoration: BoxDecoration(
-                            color: AppColors.postmanOrange,
-                            borderRadius: BorderRadius.circular(21),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.postmanOrangeDark.withValues(
-                                  alpha: 0.24,
-                                ),
-                                blurRadius: 22,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.local_shipping_rounded,
-                            color: Colors.white,
-                            size: 35,
-                            semanticLabel: 'PelekaPro',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 28),
+                      const Center(child: PelekaProBrand()),
+                      const SizedBox(height: 54),
                       Text(
                         'Welcome back',
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              color: AppColors.ink,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.7,
-                            ),
+                        style: Theme.of(context).textTheme.headlineLarge,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Sign in to view and manage your assigned deliveries.',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      const SizedBox(height: AppSpacing.xs),
+                      const Text(
+                        'Sign in to continue',
+                        style: TextStyle(
                           color: AppColors.mutedInk,
-                          height: 1.45,
+                          fontSize: 16,
                         ),
                       ),
                       if (_loginController.generalError case final error?) ...[
-                        const SizedBox(height: 22),
+                        const SizedBox(height: AppSpacing.lg),
                         LoginErrorBanner(message: error),
                       ],
-                      const SizedBox(height: 34),
+                      const SizedBox(height: AppSpacing.xxl),
                       TextFormField(
                         key: const ValueKey('login-identifier'),
                         controller: _identifierController,
@@ -170,8 +148,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         autocorrect: false,
                         onChanged: (_) => _loginController.clearLoginError(),
                         decoration: InputDecoration(
-                          labelText: 'Phone number or email',
-                          hintText: '+255… or driver@example.com',
+                          labelText: 'Phone or email',
+                          hintText: '+255 712 345 678',
                           prefixIcon: const Icon(Icons.person_outline_rounded),
                           errorText: _loginController.loginError,
                         ),
@@ -179,11 +157,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           if (value == null || value.trim().isEmpty) {
                             return 'Enter your phone number or email.';
                           }
-
                           return null;
                         },
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: AppSpacing.md),
                       TextFormField(
                         key: const ValueKey('login-password'),
                         controller: _passwordController,
@@ -206,12 +183,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 : 'Hide password',
                             onPressed: isSubmitting
                                 ? null
-                                : () {
-                                    setState(
-                                      () =>
-                                          _obscurePassword = !_obscurePassword,
-                                    );
-                                  },
+                                : () => setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  ),
                             icon: Icon(
                               _obscurePassword
                                   ? Icons.visibility_outlined
@@ -223,39 +197,23 @@ class _LoginScreenState extends State<LoginScreen> {
                           if (value == null || value.isEmpty) {
                             return 'Enter your password.';
                           }
-
                           return null;
                         },
                       ),
-                      const SizedBox(height: 26),
-                      FilledButton(
+                      const SizedBox(height: AppSpacing.xl),
+                      PrimaryButton(
                         key: const ValueKey('login-submit'),
-                        onPressed: isSubmitting ? null : _submit,
-                        child: isSubmitting
-                            ? const SizedBox.square(
-                                dimension: 22,
-                                child: CircularProgressIndicator(
-                                  key: ValueKey('login-progress'),
-                                  strokeWidth: 2.5,
-                                ),
-                              )
-                            : const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text('Sign In'),
-                                  SizedBox(width: 9),
-                                  Icon(Icons.arrow_forward_rounded, size: 21),
-                                ],
-                              ),
+                        label: 'Sign in',
+                        onPressed: _submit,
+                        isLoading: isSubmitting,
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: AppSpacing.md),
                       const Text(
-                        'Your session is encrypted and stored securely on this device.',
+                        'Driver access only',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppColors.mutedInk,
                           fontSize: 13,
-                          height: 1.4,
                         ),
                       ),
                     ],

@@ -3,12 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/features/auth/auth_composition.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
-import 'package:pelekapro_mobile/features/auth/presentation/driver_profile_screen.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/login_screen.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/session_check_screen.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/session_controller.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/session_error_screen.dart';
-import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
+import 'package:pelekapro_mobile/features/shell/presentation/driver_shell.dart';
 
 class AuthFlow extends StatefulWidget {
   const AuthFlow({super.key, this.repository});
@@ -57,17 +56,15 @@ class _AuthFlowState extends State<AuthFlow> {
   Widget build(BuildContext context) {
     return switch (_sessionController.status) {
       SessionStatus.checking => const SessionCheckScreen(),
-      SessionStatus.onboarding => OnboardingScreen(
-        authRepository: _repository,
-        onOpenLogin: _sessionController.showLogin,
-      ),
       SessionStatus.login => LoginScreen(
         repository: _repository,
         onAuthenticated: _sessionController.acceptAuthenticatedUser,
       ),
-      SessionStatus.authenticated => DriverProfileScreen(
+      SessionStatus.authenticated => DriverShell(
         user: _sessionController.user!,
-        onRefresh: _sessionController.restore,
+        repository: _repository,
+        onRefreshAccount: _sessionController.restore,
+        onLoggedOut: _sessionController.showLogin,
       ),
       SessionStatus.failure => SessionErrorScreen(
         message: _sessionController.errorMessage!,

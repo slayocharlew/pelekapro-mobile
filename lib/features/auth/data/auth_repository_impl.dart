@@ -114,6 +114,34 @@ class AuthRepositoryImpl implements AuthRepository {
     return session;
   }
 
+  @override
+  Future<void> logout() async {
+    late final StoredAuthToken? storedToken;
+
+    try {
+      storedToken = await tokenStorage.read();
+    } on Object {
+      throw AuthFailure(
+        message:
+            'The secure session could not be read. Restart the app and try again.',
+      );
+    }
+
+    if (storedToken == null) {
+      return;
+    }
+
+    try {
+      await remoteDataSource.logout(storedToken.accessToken);
+    } on ApiException catch (error) {
+      if (error.statusCode != 401) {
+        throw _authFailureFrom(error);
+      }
+    }
+
+    await _clearStoredSession();
+  }
+
   bool _isDriver(AuthUser user) {
     return user.role.toLowerCase() == 'driver' && user.driverProfile != null;
   }
@@ -132,7 +160,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } on Object {
       throw AuthFailure(
         message:
-            'The expired session could not be removed securely. '
+            'The session could not be removed securely. '
             'Restart the app and try again.',
       );
     }
