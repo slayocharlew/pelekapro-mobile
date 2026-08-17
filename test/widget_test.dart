@@ -13,6 +13,7 @@ import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dar
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
@@ -303,7 +304,14 @@ void main() {
   testWidgets('assigned API delivery opens the concise detail screen', (
     tester,
   ) async {
-    await _pumpApp(tester, repository: _authenticatedRepository());
+    final deliveryRepository = _FakeDeliveryRepository(
+      details: driverDeliveryDetailsFixture(),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
 
     await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
     await tester.pumpAndSettle();
@@ -321,6 +329,70 @@ void main() {
     expect(find.text('Accept delivery'), findsNothing);
     expect(find.text('Mark arrived'), findsNothing);
     expect(find.text('Cancel delivery'), findsNothing);
+    expect(deliveryRepository.detailFetchCalls, 1);
+    expect(deliveryRepository.lastDetailId, 101);
+  });
+
+  testWidgets('delivery details supports loading and retry states', (
+    tester,
+  ) async {
+    final detailCompleter = Completer<DriverDeliveryDetails>();
+    final deliveryRepository = _FakeDeliveryRepository(
+      detailCompleter: detailCompleter,
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      find.byKey(const ValueKey('delivery-details-loading')),
+      findsOneWidget,
+    );
+
+    detailCompleter.complete(driverDeliveryDetailsFixture());
+    await tester.pumpAndSettle();
+    expect(find.text('Asha Juma'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    deliveryRepository.detailFailure = const DeliveryFailure(
+      message: 'Unable to load this delivery.',
+    );
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pumpAndSettle();
+    expect(find.text('Unable to load this delivery.'), findsOneWidget);
+
+    deliveryRepository.detailFailure = null;
+    await tester.tap(find.byKey(const ValueKey('retry-delivery-details')));
+    await tester.pumpAndSettle();
+    expect(find.text('Asha Juma'), findsOneWidget);
+  });
+
+  testWidgets('an expired delivery-detail session returns to login', (
+    tester,
+  ) async {
+    final deliveryRepository = _FakeDeliveryRepository(
+      detailFailure: const DeliveryFailure(
+        message: 'Your session has expired. Sign in again.',
+        statusCode: 401,
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('login-screen')), findsOneWidget);
+    expect(deliveryRepository.detailFetchCalls, 1);
   });
 
   testWidgets('Start delivery opens motorcycle navigation locally only', (
@@ -347,6 +419,7 @@ void main() {
     expect(repository.loginCalls, 0);
     expect(repository.logoutCalls, 0);
     expect(deliveryRepository.fetchCalls, 1);
+    expect(deliveryRepository.detailFetchCalls, 1);
   });
 
   testWidgets(
@@ -385,6 +458,7 @@ void main() {
       expect(repository.loginCalls, 0);
       expect(repository.logoutCalls, 0);
       expect(deliveryRepository.fetchCalls, 1);
+      expect(deliveryRepository.detailFetchCalls, 1);
     },
   );
 
@@ -418,6 +492,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('report-issue-local')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('report-issue-screen')), findsOneWidget);
+    expect(find.text('Customer unavailable'), findsOneWidget);
+    expect(find.text('Wrong address'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('issue-reason-customer-unavailable')),
@@ -435,6 +511,7 @@ void main() {
     expect(repository.loginCalls, 0);
     expect(repository.logoutCalls, 0);
     expect(deliveryRepository.fetchCalls, 1);
+    expect(deliveryRepository.detailFetchCalls, 1);
   });
 
   testWidgets('Account renders only real me data and useful actions', (
@@ -794,12 +871,20 @@ class _FakeDeliveryRepository implements DeliveryRepository {
     List<DriverDelivery>? deliveries,
     this.failure,
     this.completer,
+    this.details,
+    this.detailFailure,
+    this.detailCompleter,
   }) : deliveries = deliveries ?? assignedDeliveriesFixture();
 
   final List<DriverDelivery> deliveries;
   DeliveryFailure? failure;
   final Completer<List<DriverDelivery>>? completer;
+  final DriverDeliveryDetails? details;
+  DeliveryFailure? detailFailure;
+  final Completer<DriverDeliveryDetails>? detailCompleter;
   int fetchCalls = 0;
+  int detailFetchCalls = 0;
+  int? lastDetailId;
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries() async {
@@ -811,6 +896,24 @@ class _FakeDeliveryRepository implements DeliveryRepository {
       throw deliveryFailure;
     }
     return deliveries;
+  }
+
+  @override
+  Future<DriverDeliveryDetails> fetchDeliveryDetails(int deliveryId) async {
+    detailFetchCalls += 1;
+    lastDetailId = deliveryId;
+    if (detailFailure case final deliveryFailure?) {
+      throw deliveryFailure;
+    }
+    if (detailCompleter case final pending?) {
+      return pending.future;
+    }
+    if (details case final configuredDetails?) {
+      return configuredDetails;
+    }
+    return driverDeliveryDetailsFixture(
+      delivery: deliveries.firstWhere((delivery) => delivery.id == deliveryId),
+    );
   }
 
   @override

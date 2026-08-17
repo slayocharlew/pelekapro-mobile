@@ -166,10 +166,10 @@ class _DeliveryDetailsLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      key: ValueKey('delivery-details-screen'),
-      appBar: AppBar(title: Text('Delivery details')),
-      body: Center(
+    return Scaffold(
+      key: const ValueKey('delivery-details-screen'),
+      appBar: AppBar(title: const Text('Delivery details')),
+      body: const Center(
         child: SizedBox.square(
           key: ValueKey('delivery-details-loading'),
           dimension: 28,

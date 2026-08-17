@@ -106,7 +106,7 @@ The authentication code is separated by responsibility under `lib/features/auth`
 - `presentation` contains the startup auth flow, controllers, login UI, and retry state.
 - `lib/features/account` renders the current driver returned by `GET /api/auth/me` and current-device security actions.
 - `lib/features/shell` owns the Deliveries, Active, and Account navigation.
-- `lib/features/deliveries/data` fetches and validates assigned-delivery responses.
+- `lib/features/deliveries/data` fetches and validates assigned-list and selected-delivery responses.
 - `lib/features/deliveries/domain` contains the server-authoritative delivery models, repository contract, statuses, and failures.
 - `lib/features/deliveries/presentation` contains assigned-list state, server-to-UI mapping, and the approved delivery workflow screens.
 - `lib/shared/widgets` contains the PelekaPro brand mark, card, button, and status components.
@@ -123,7 +123,7 @@ The Account tab consumes `POST /api/auth/logout`. It asks for confirmation, revo
 
 After authentication, the app consumes `GET /api/driver/deliveries` with the bearer token held in secure storage. It validates the complete documented driver-delivery resource, deliberately parses decimal strings, and renders only deliveries assigned by Laravel to the current driver. The list supports loading, empty, retry, pull-to-refresh, and non-destructive refresh-error states. A `401` response clears the expired secure token and returns to login.
 
-The response is currently unpaginated and newest-first. The app does not manufacture statuses or add client-side API filters. Delivery details are rendered from the full objects already returned by the assigned-list endpoint; `GET /api/driver/deliveries/{delivery}` is not connected yet.
+The list response is currently unpaginated and newest-first. The app does not manufacture statuses or add client-side API filters. Opening a delivery consumes `GET /api/driver/deliveries/{delivery}`, refreshes that selected item with the server response, and uses the returned active `failure_reasons` in the Report issue form. Detail loading, retry, malformed-response, and expired-session states are handled without exposing raw exceptions.
 
 The remaining delivery actions still do not change Laravel state, collect GPS, open the camera, upload proof, or record money. The complete downstream UI journey remains available locally for approval:
 
@@ -132,7 +132,7 @@ The remaining delivery actions still do not change Laravel state, collect GPS, o
 - active navigation → report issue → failed result;
 - either result → back to deliveries.
 
-Start, delivered, and failed transitions update only presentation memory and are replaced by the next server refresh. No start, deliver, fail, detail, GPS, tracking-history, upload, or Reverb endpoint is called by those screens. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions. The custom navigation composition follows an OpenStreetMap visual direction with a top-down motorcycle marker; no map, routing, location, or navigation SDK is connected yet.
+Start, delivered, and failed transitions update only presentation memory and are replaced by the next server refresh. No start, deliver, fail, GPS, tracking-history, upload, or Reverb endpoint is called by those actions. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions. The custom navigation composition follows an OpenStreetMap visual direction with a top-down motorcycle marker; no map, routing, location, or navigation SDK is connected yet.
 
 The approved screenshots remain in `UI/` as design references. That directory is deliberately absent from `pubspec.yaml` assets and is not bundled into the Android application.
 
@@ -174,19 +174,20 @@ Implemented:
 - Authenticated Account profile and manual refresh
 - Current-device logout through `POST /api/auth/logout`
 - Assigned deliveries through `GET /api/driver/deliveries`
+- Selected delivery and active failure reasons through `GET /api/driver/deliveries/{delivery}`
 - Assigned-list loading, empty, retry, refresh, and session-expiry handling
+- Delivery-detail loading, retry, validation, and session-expiry handling
 - Complete local UI journey for delivery design approval
 - API, repository, controller, and UI error handling
 
 Next phases:
 
-1. Consume the assigned-delivery detail API in the prepared UI
-2. Connect the start transition
-3. Add foreground GPS collection and submissions approximately every five seconds
-4. Connect proof capture and upload
-5. Connect delivered, failed, PIN, and payment workflows
-6. Stop GPS immediately on delivered, failed, or cancelled
-7. Connect authorized tracking history
-8. Consume logout-all when required
-9. Add Reverb integration where required
-10. Add production Android signing and configuration
+1. Connect the start transition
+2. Add foreground GPS collection and submissions approximately every five seconds
+3. Connect proof capture and upload
+4. Connect delivered, failed, PIN, and payment workflows
+5. Stop GPS immediately on delivered, failed, or cancelled
+6. Connect authorized tracking history
+7. Consume logout-all when required
+8. Add Reverb integration where required
+9. Add production Android signing and configuration

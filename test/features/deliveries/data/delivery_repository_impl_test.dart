@@ -5,6 +5,7 @@ import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_s
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_repository_impl.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 
 import '../../../helpers/driver_delivery_fixture.dart';
 
@@ -32,6 +33,35 @@ void main() {
       expect(remote.accessToken, 'stored-token');
       expect(storage.clearCount, 0);
     });
+
+    test(
+      'uses the secure token and selected id for delivery details',
+      () async {
+        final remote = _FakeDeliveryRemoteDataSource(
+          details: driverDeliveryDetailsFixture(),
+        );
+        final storage = _MemoryTokenStorage(
+          token: const StoredAuthToken(
+            accessToken: 'stored-detail-token',
+            tokenType: 'Bearer',
+          ),
+        );
+        final repository = DeliveryRepositoryImpl(
+          remoteDataSource: remote,
+          tokenStorage: storage,
+          now: _now,
+        );
+
+        final details = await repository.fetchDeliveryDetails(101);
+
+        expect(details.delivery.id, 101);
+        expect(details.failureReasons, hasLength(5));
+        expect(remote.detailAccessToken, 'stored-detail-token');
+        expect(remote.deliveryId, 101);
+        expect(remote.detailCalls, 1);
+        expect(storage.clearCount, 0);
+      },
+    );
 
     test('rejects a missing or expired stored session', () async {
       final noSessionRemote = _FakeDeliveryRemoteDataSource();
@@ -109,6 +139,44 @@ void main() {
     });
 
     test(
+      'clears a token when the detail request is rejected with 401',
+      () async {
+        final remote = _FakeDeliveryRemoteDataSource(
+          detailError: ApiException(
+            message: 'Unauthenticated.',
+            statusCode: 401,
+          ),
+        );
+        final storage = _MemoryTokenStorage(
+          token: const StoredAuthToken(
+            accessToken: 'revoked-detail-token',
+            tokenType: 'Bearer',
+          ),
+        );
+        final repository = DeliveryRepositoryImpl(
+          remoteDataSource: remote,
+          tokenStorage: storage,
+          now: _now,
+        );
+
+        await expectLater(
+          repository.fetchDeliveryDetails(101),
+          throwsA(
+            isA<DeliveryFailure>()
+                .having((failure) => failure.statusCode, 'statusCode', 401)
+                .having(
+                  (failure) => failure.message,
+                  'message',
+                  contains('session has expired'),
+                ),
+          ),
+        );
+        expect(storage.token, isNull);
+        expect(storage.clearCount, 1);
+      },
+    );
+
+    test(
       'keeps the token when the server is temporarily unavailable',
       () async {
         final remote = _FakeDeliveryRemoteDataSource(
@@ -148,12 +216,22 @@ void main() {
 DateTime _now() => DateTime.utc(2026, 8, 17, 10);
 
 class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
-  _FakeDeliveryRemoteDataSource({this.deliveries = const [], this.error});
+  _FakeDeliveryRemoteDataSource({
+    this.deliveries = const [],
+    this.details,
+    this.error,
+    this.detailError,
+  });
 
   final List<DriverDelivery> deliveries;
+  final DriverDeliveryDetails? details;
   final ApiException? error;
+  final ApiException? detailError;
   String? accessToken;
+  String? detailAccessToken;
+  int? deliveryId;
   int calls = 0;
+  int detailCalls = 0;
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries(String token) async {
@@ -163,6 +241,20 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
       throw apiError;
     }
     return deliveries;
+  }
+
+  @override
+  Future<DriverDeliveryDetails> fetchDeliveryDetails(
+    int id,
+    String token,
+  ) async {
+    detailCalls += 1;
+    deliveryId = id;
+    detailAccessToken = token;
+    if (detailError case final apiError?) {
+      throw apiError;
+    }
+    return details ?? driverDeliveryDetailsFixture();
   }
 
   @override

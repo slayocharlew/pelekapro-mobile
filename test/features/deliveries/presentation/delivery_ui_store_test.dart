@@ -62,5 +62,24 @@ void main() {
       store.replaceFromServer(deliveries);
       expect(store.deliveryById(101).status, DeliveryStatus.assigned);
     });
+
+    test('fresh detail data replaces only the selected delivery', () {
+      final store = DeliveryUiStore()
+        ..replaceFromServer(assignedDeliveriesFixture());
+      addTearDown(store.dispose);
+
+      store.replaceOneFromServer(
+        driverDeliveryFixture(
+          id: 101,
+          recipientName: 'Updated Recipient',
+          status: DeliveryStatus.accepted,
+        ),
+      );
+
+      expect(store.deliveryById(101).recipientName, 'Updated Recipient');
+      expect(store.deliveryById(101).status, DeliveryStatus.accepted);
+      expect(store.deliveryById(102).recipientName, 'Neema Joseph');
+      expect(store.deliveries, hasLength(4));
+    });
   });
 }

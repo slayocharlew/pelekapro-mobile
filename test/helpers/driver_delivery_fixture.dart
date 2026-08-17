@@ -1,4 +1,5 @@
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_customer.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure_reason.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_item.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_payment.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_requirements.dart';
@@ -6,6 +7,7 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_stop.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_timestamps.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 
 DriverDelivery driverDeliveryFixture({
   int id = 101,
@@ -139,4 +141,20 @@ List<DriverDelivery> assignedDeliveriesFixture() {
       instruction: null,
     ),
   ];
+}
+
+DriverDeliveryDetails driverDeliveryDetailsFixture({
+  DriverDelivery? delivery,
+  List<DeliveryFailureReason> failureReasons = const [
+    DeliveryFailureReason(id: 1, name: 'Customer unavailable'),
+    DeliveryFailureReason(id: 2, name: 'Wrong address'),
+    DeliveryFailureReason(id: 3, name: 'No answer'),
+    DeliveryFailureReason(id: 4, name: 'Rescheduled'),
+    DeliveryFailureReason(id: 5, name: 'Other'),
+  ],
+}) {
+  return DriverDeliveryDetails(
+    delivery: delivery ?? driverDeliveryFixture(),
+    failureReasons: List.unmodifiable(failureReasons),
+  );
 }

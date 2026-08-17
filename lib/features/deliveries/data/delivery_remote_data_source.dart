@@ -52,7 +52,11 @@ class DeliveryRemoteDataSource {
     }
 
     try {
-      return DriverDeliveryDetailsMapper.fromJson(data);
+      final details = DriverDeliveryDetailsMapper.fromJson(data);
+      if (details.delivery.id != deliveryId) {
+        throw const FormatException('Unexpected delivery id.');
+      }
+      return details;
     } on FormatException {
       throw ApiException.invalidResponse();
     }

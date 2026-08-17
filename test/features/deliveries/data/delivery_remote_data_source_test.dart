@@ -75,6 +75,84 @@ void main() {
       );
     });
 
+    test('gets delivery details and active failure reasons', () async {
+      late http.Request capturedRequest;
+      final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+      final delivery =
+          (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+      delivery['failure_reasons'] = [
+        {'id': 7, 'name': 'Customer not reachable'},
+        {'id': 9, 'name': 'Wrong address'},
+      ];
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient((request) async {
+            capturedRequest = request;
+            return http.Response(
+              jsonEncode({
+                'success': true,
+                'message': 'Assigned delivery retrieved successfully',
+                'data': delivery,
+              }),
+              200,
+            );
+          }),
+        ),
+      );
+
+      final details = await dataSource.fetchDeliveryDetails(
+        101,
+        'stored-driver-token',
+      );
+
+      expect(capturedRequest.method, 'GET');
+      expect(capturedRequest.url.path, '/api/driver/deliveries/101');
+      expect(
+        capturedRequest.headers['authorization'],
+        'Bearer stored-driver-token',
+      );
+      expect(details.delivery.deliveryNumber, 'PP-24031');
+      expect(details.failureReasons, hasLength(2));
+      expect(details.failureReasons.first.id, 7);
+      expect(details.failureReasons.first.name, 'Customer not reachable');
+    });
+
+    test('rejects detail responses without valid failure reasons', () async {
+      final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+      final delivery =
+          (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'success': true, 'data': delivery}),
+              200,
+            ),
+          ),
+        ),
+      );
+
+      await expectLater(
+        dataSource.fetchDeliveryDetails(101, 'token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            contains('invalid response'),
+          ),
+        ),
+      );
+
+      delivery['failure_reasons'] = <Object?>[];
+      delivery['id'] = 999;
+      await expectLater(
+        dataSource.fetchDeliveryDetails(101, 'token'),
+        throwsA(isA<ApiException>()),
+      );
+    });
+
     test('accepts nullable delivery contact and address fields', () async {
       final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
       final delivery =
