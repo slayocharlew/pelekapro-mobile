@@ -4,6 +4,7 @@ import 'package:pelekapro_mobile/core/storage/token_storage.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_repository_impl.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 
@@ -60,6 +61,70 @@ void main() {
         expect(remote.deliveryId, 101);
         expect(remote.detailCalls, 1);
         expect(storage.clearCount, 0);
+      },
+    );
+
+    test('uses the secure token and selected id to start delivery', () async {
+      final remote = _FakeDeliveryRemoteDataSource(
+        startedDelivery: driverDeliveryFixture(status: DeliveryStatus.onTheWay),
+      );
+      final storage = _MemoryTokenStorage(
+        token: const StoredAuthToken(
+          accessToken: 'stored-start-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = DeliveryRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        now: _now,
+      );
+
+      final delivery = await repository.startDelivery(101);
+
+      expect(delivery.status, DeliveryStatus.onTheWay);
+      expect(remote.startAccessToken, 'stored-start-token');
+      expect(remote.startedDeliveryId, 101);
+      expect(remote.startCalls, 1);
+      expect(storage.clearCount, 0);
+    });
+
+    test(
+      'preserves the token and status code after a start conflict',
+      () async {
+        final remote = _FakeDeliveryRemoteDataSource(
+          startError: ApiException(
+            message: 'This delivery has already been started.',
+            statusCode: 409,
+          ),
+        );
+        const token = StoredAuthToken(
+          accessToken: 'conflict-token',
+          tokenType: 'Bearer',
+        );
+        final storage = _MemoryTokenStorage(token: token);
+        final repository = DeliveryRepositoryImpl(
+          remoteDataSource: remote,
+          tokenStorage: storage,
+          now: _now,
+        );
+
+        await expectLater(
+          repository.startDelivery(101),
+          throwsA(
+            isA<DeliveryFailure>()
+                .having((failure) => failure.statusCode, 'statusCode', 409)
+                .having(
+                  (failure) => failure.message,
+                  'message',
+                  contains('already been started'),
+                ),
+          ),
+        );
+
+        expect(storage.token, same(token));
+        expect(storage.clearCount, 0);
+        expect(remote.startCalls, 1);
       },
     );
 
@@ -219,19 +284,26 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
   _FakeDeliveryRemoteDataSource({
     this.deliveries = const [],
     this.details,
+    this.startedDelivery,
     this.error,
     this.detailError,
+    this.startError,
   });
 
   final List<DriverDelivery> deliveries;
   final DriverDeliveryDetails? details;
+  final DriverDelivery? startedDelivery;
   final ApiException? error;
   final ApiException? detailError;
+  final ApiException? startError;
   String? accessToken;
   String? detailAccessToken;
+  String? startAccessToken;
   int? deliveryId;
+  int? startedDeliveryId;
   int calls = 0;
   int detailCalls = 0;
+  int startCalls = 0;
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries(String token) async {
@@ -255,6 +327,18 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
       throw apiError;
     }
     return details ?? driverDeliveryDetailsFixture();
+  }
+
+  @override
+  Future<DriverDelivery> startDelivery(int id, String token) async {
+    startCalls += 1;
+    startedDeliveryId = id;
+    startAccessToken = token;
+    if (startError case final apiError?) {
+      throw apiError;
+    }
+    return startedDelivery ??
+        driverDeliveryFixture(id: id, status: DeliveryStatus.onTheWay);
   }
 
   @override

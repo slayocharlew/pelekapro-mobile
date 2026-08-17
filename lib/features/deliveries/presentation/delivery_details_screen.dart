@@ -11,6 +11,7 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_detai
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/start_delivery_controller.dart';
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
@@ -37,11 +38,16 @@ class DeliveryDetailsScreen extends StatefulWidget {
 
 class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
   late final DeliveryDetailsController _controller;
+  late final StartDeliveryController _startController;
 
   @override
   void initState() {
     super.initState();
     _controller = DeliveryDetailsController(
+      widget.repository,
+      onUnauthorized: widget.onSessionExpired,
+    );
+    _startController = StartDeliveryController(
       widget.repository,
       onUnauthorized: widget.onSessionExpired,
     );
@@ -51,6 +57,7 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _startController.dispose();
     super.dispose();
   }
 
@@ -83,9 +90,48 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
     );
   }
 
-  void _startLocally(DeliveryUiModel delivery, DriverDeliveryDetails details) {
-    widget.store.previewStartDelivery(delivery.id);
-    _openNavigation(widget.store.deliveryById(delivery.id), details);
+  Future<void> _startDelivery(
+    DeliveryUiModel delivery,
+    DriverDeliveryDetails currentDetails,
+  ) async {
+    await _startController.start(delivery.id);
+    if (!mounted) {
+      return;
+    }
+
+    final startedDelivery = _startController.startedDelivery;
+    if (_startController.status == StartDeliveryStatus.success &&
+        startedDelivery != null) {
+      final startedDetails = DriverDeliveryDetails(
+        delivery: startedDelivery,
+        failureReasons: currentDetails.failureReasons,
+      );
+      widget.store.replaceOneFromServer(startedDelivery);
+      _openNavigation(
+        widget.store.deliveryById(startedDelivery.id),
+        startedDetails,
+      );
+      return;
+    }
+
+    if (_startController.isUnauthorized) {
+      return;
+    }
+
+    // A timeout or conflict may mean Laravel committed the start even though
+    // the POST response did not reach the phone. Reconcile before retrying.
+    await _loadDetails();
+    if (!mounted || _controller.status != DeliveryDetailsStatus.ready) {
+      return;
+    }
+    final reconciledDetails = _controller.details;
+    if (reconciledDetails != null &&
+        reconciledDetails.delivery.status.isActive) {
+      _openNavigation(
+        widget.store.deliveryById(reconciledDetails.delivery.id),
+        reconciledDetails,
+      );
+    }
   }
 
   void _showContactPreview() {
@@ -101,7 +147,11 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_controller, widget.store]),
+      animation: Listenable.merge([
+        _controller,
+        _startController,
+        widget.store,
+      ]),
       builder: (context, _) {
         final details = _controller.details;
         if (_controller.status == DeliveryDetailsStatus.initial ||
@@ -151,7 +201,9 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
             ),
             child: _BottomAction(
               delivery: delivery,
-              onStart: () => _startLocally(delivery, details),
+              isStarting: _startController.isSubmitting,
+              startError: _startController.errorMessage,
+              onStart: () => _startDelivery(delivery, details),
               onContinue: () => _openNavigation(delivery, details),
             ),
           ),
@@ -527,21 +579,50 @@ class _InformationRow extends StatelessWidget {
 class _BottomAction extends StatelessWidget {
   const _BottomAction({
     required this.delivery,
+    required this.isStarting,
+    required this.startError,
     required this.onStart,
     required this.onContinue,
   });
 
   final DeliveryUiModel delivery;
+  final bool isStarting;
+  final String? startError;
   final VoidCallback onStart;
   final VoidCallback onContinue;
 
   @override
   Widget build(BuildContext context) {
     if (delivery.status.canStart) {
-      return PrimaryButton(
-        key: const ValueKey('start-delivery-local'),
-        label: 'Start delivery',
-        onPressed: onStart,
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (startError case final message?) ...[
+            Container(
+              key: const ValueKey('start-delivery-error'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.postmanOrangeSoft,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                message,
+                style: const TextStyle(color: AppColors.ink, fontSize: 13),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+          PrimaryButton(
+            key: const ValueKey('start-delivery-api'),
+            label: 'Start delivery',
+            isLoading: isStarting,
+            onPressed: onStart,
+          ),
+        ],
       );
     }
 

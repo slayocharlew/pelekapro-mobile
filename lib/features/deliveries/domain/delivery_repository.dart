@@ -6,5 +6,7 @@ abstract interface class DeliveryRepository {
 
   Future<DriverDeliveryDetails> fetchDeliveryDetails(int deliveryId);
 
+  Future<DriverDelivery> startDelivery(int deliveryId);
+
   void close();
 }

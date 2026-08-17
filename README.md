@@ -119,20 +119,22 @@ On startup, the app reads the encrypted token and consumes `GET /api/auth/me`. A
 
 The Account tab consumes `POST /api/auth/logout`. It asks for confirmation, revokes only the current bearer token, removes it from secure storage, clears private in-memory state, and returns to login. A recoverable server failure keeps the secure session so the driver can retry.
 
-## Assigned deliveries and workflow preview
+## Assigned deliveries and workflow
 
 After authentication, the app consumes `GET /api/driver/deliveries` with the bearer token held in secure storage. It validates the complete documented driver-delivery resource, deliberately parses decimal strings, and renders only deliveries assigned by Laravel to the current driver. The list supports loading, empty, retry, pull-to-refresh, and non-destructive refresh-error states. A `401` response clears the expired secure token and returns to login.
 
 The list response is currently unpaginated and newest-first. The app does not manufacture statuses or add client-side API filters. Opening a delivery consumes `GET /api/driver/deliveries/{delivery}`, refreshes that selected item with the server response, and uses the returned active `failure_reasons` in the Report issue form. Detail loading, retry, malformed-response, and expired-session states are handled without exposing raw exceptions.
 
-The remaining delivery actions still do not change Laravel state, collect GPS, open the camera, upload proof, or record money. The complete downstream UI journey remains available locally for approval:
+Start Delivery consumes `POST /api/driver/deliveries/{delivery}/start` without a request body. The button is disabled while submitting, navigation opens only after Laravel returns the full delivery with `on_the_way`, and the selected delivery is replaced with that server response. A failed or `409` response triggers a detail refetch before another attempt, preventing a blind duplicate start after an ambiguous timeout or conflict. A `401` clears the secure session and returns to login.
+
+GPS does not start yet. The remaining outcome actions still do not change Laravel state, collect location, open the camera, upload proof, or record money. The complete downstream UI journey remains available for continued development:
 
 - assigned deliveries → details → start → active navigation;
 - active navigation → mark delivered → delivered result;
 - active navigation → report issue → failed result;
 - either result → back to deliveries.
 
-Start, delivered, and failed transitions update only presentation memory and are replaced by the next server refresh. No start, deliver, fail, GPS, tracking-history, upload, or Reverb endpoint is called by those actions. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions. The custom navigation composition follows an OpenStreetMap visual direction with a top-down motorcycle marker; no map, routing, location, or navigation SDK is connected yet.
+Delivered and failed transitions update only presentation memory and are replaced by the next server refresh. No deliver, fail, GPS, tracking-history, upload, or Reverb endpoint is called by those actions. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions. The custom navigation composition follows an OpenStreetMap visual direction with a top-down motorcycle marker; no map, routing, location, or navigation SDK is connected yet.
 
 The approved screenshots remain in `UI/` as design references. That directory is deliberately absent from `pubspec.yaml` assets and is not bundled into the Android application.
 
@@ -175,19 +177,20 @@ Implemented:
 - Current-device logout through `POST /api/auth/logout`
 - Assigned deliveries through `GET /api/driver/deliveries`
 - Selected delivery and active failure reasons through `GET /api/driver/deliveries/{delivery}`
+- Start delivery through `POST /api/driver/deliveries/{delivery}/start`
 - Assigned-list loading, empty, retry, refresh, and session-expiry handling
 - Delivery-detail loading, retry, validation, and session-expiry handling
+- Duplicate-start protection and ambiguous-start reconciliation
 - Complete local UI journey for delivery design approval
 - API, repository, controller, and UI error handling
 
 Next phases:
 
-1. Connect the start transition
-2. Add foreground GPS collection and submissions approximately every five seconds
-3. Connect proof capture and upload
-4. Connect delivered, failed, PIN, and payment workflows
-5. Stop GPS immediately on delivered, failed, or cancelled
-6. Connect authorized tracking history
-7. Consume logout-all when required
-8. Add Reverb integration where required
-9. Add production Android signing and configuration
+1. Add foreground GPS collection and submissions approximately every five seconds
+2. Connect proof capture and upload
+3. Connect delivered, failed, PIN, and payment workflows
+4. Stop GPS immediately on delivered, failed, or cancelled
+5. Connect authorized tracking history
+6. Consume logout-all when required
+7. Add Reverb integration where required
+8. Add production Android signing and configuration

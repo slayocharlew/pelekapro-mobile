@@ -24,16 +24,29 @@ class DeliveryRepositoryImpl implements DeliveryRepository {
 
   @override
   Future<DriverDeliveryDetails> fetchDeliveryDetails(int deliveryId) {
-    if (deliveryId <= 0) {
-      throw const DeliveryFailure(
-        message: 'The selected delivery could not be identified.',
-      );
-    }
+    _validateDeliveryId(deliveryId);
 
     return _withAccessToken(
       (accessToken) =>
           remoteDataSource.fetchDeliveryDetails(deliveryId, accessToken),
     );
+  }
+
+  @override
+  Future<DriverDelivery> startDelivery(int deliveryId) {
+    _validateDeliveryId(deliveryId);
+
+    return _withAccessToken(
+      (accessToken) => remoteDataSource.startDelivery(deliveryId, accessToken),
+    );
+  }
+
+  void _validateDeliveryId(int deliveryId) {
+    if (deliveryId <= 0) {
+      throw const DeliveryFailure(
+        message: 'The selected delivery could not be identified.',
+      );
+    }
   }
 
   Future<T> _withAccessToken<T>(

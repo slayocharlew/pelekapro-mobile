@@ -12,6 +12,7 @@ import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
 import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
@@ -395,11 +396,15 @@ void main() {
     expect(deliveryRepository.detailFetchCalls, 1);
   });
 
-  testWidgets('Start delivery opens motorcycle navigation locally only', (
+  testWidgets('Start delivery calls the API once before opening navigation', (
     tester,
   ) async {
     final repository = _authenticatedRepository();
-    final deliveryRepository = _FakeDeliveryRepository();
+    final deliveryRepository = _FakeDeliveryRepository(
+      startedDelivery: driverDeliveryFixture(
+        status: DeliveryStatus.onTheWay,
+      ),
+    );
     await _pumpApp(
       tester,
       repository: repository,
@@ -420,10 +425,146 @@ void main() {
     expect(repository.logoutCalls, 0);
     expect(deliveryRepository.fetchCalls, 1);
     expect(deliveryRepository.detailFetchCalls, 1);
+    expect(deliveryRepository.startCalls, 1);
+    expect(deliveryRepository.lastStartedDeliveryId, 101);
+  });
+
+  testWidgets('Start delivery disables duplicate submissions while loading', (
+    tester,
+  ) async {
+    final startCompleter = Completer<DriverDelivery>();
+    final deliveryRepository = _FakeDeliveryRepository(
+      startCompleter: startCompleter,
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pumpAndSettle();
+
+    final startButton = find.byKey(const ValueKey('start-delivery-api'));
+    await tester.tap(startButton);
+    await tester.pump();
+
+    expect(deliveryRepository.startCalls, 1);
+    expect(
+      find.descendant(
+        of: startButton,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    final filledButton = tester.widget<FilledButton>(
+      find.descendant(of: startButton, matching: find.byType(FilledButton)),
+    );
+    expect(filledButton.onPressed, isNull);
+
+    startCompleter.complete(
+      driverDeliveryFixture(status: DeliveryStatus.onTheWay),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('active-navigation-screen')),
+      findsOneWidget,
+    );
+    expect(deliveryRepository.startCalls, 1);
+  });
+
+  testWidgets('failed start reconciles details before allowing a retry', (
+    tester,
+  ) async {
+    final assignedDetails = driverDeliveryDetailsFixture();
+    final deliveryRepository = _FakeDeliveryRepository(
+      detailResults: [assignedDetails, assignedDetails],
+      startFailure: const DeliveryFailure(
+        message: 'Unable to reach PelekaPro. Check your connection.',
+        statusCode: 503,
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('start-delivery-api')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('delivery-details-screen')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('start-delivery-error')), findsOneWidget);
+    expect(
+      find.text('Unable to reach PelekaPro. Check your connection.'),
+      findsOneWidget,
+    );
+    expect(deliveryRepository.startCalls, 1);
+    expect(deliveryRepository.detailFetchCalls, 2);
+  });
+
+  testWidgets('start conflict reconciles an already-started delivery', (
+    tester,
+  ) async {
+    final assignedDetails = driverDeliveryDetailsFixture();
+    final activeDetails = driverDeliveryDetailsFixture(
+      delivery: driverDeliveryFixture(status: DeliveryStatus.onTheWay),
+    );
+    final deliveryRepository = _FakeDeliveryRepository(
+      detailResults: [assignedDetails, activeDetails],
+      startFailure: const DeliveryFailure(
+        message: 'This delivery has already been started.',
+        statusCode: 409,
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('start-delivery-api')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('active-navigation-screen')),
+      findsOneWidget,
+    );
+    expect(deliveryRepository.startCalls, 1);
+    expect(deliveryRepository.detailFetchCalls, 2);
+  });
+
+  testWidgets('an expired start session returns to login', (tester) async {
+    final deliveryRepository = _FakeDeliveryRepository(
+      startFailure: const DeliveryFailure(
+        message: 'Your session has expired. Sign in again.',
+        statusCode: 401,
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('start-delivery-api')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('login-screen')), findsOneWidget);
+    expect(deliveryRepository.startCalls, 1);
+    expect(deliveryRepository.detailFetchCalls, 1);
   });
 
   testWidgets(
-    'local delivered journey returns to deliveries without API calls',
+    'delivered journey keeps completion local after the server start',
     (tester) async {
       final repository = _authenticatedRepository();
       final deliveryRepository = _FakeDeliveryRepository();
@@ -459,10 +600,11 @@ void main() {
       expect(repository.logoutCalls, 0);
       expect(deliveryRepository.fetchCalls, 1);
       expect(deliveryRepository.detailFetchCalls, 1);
+      expect(deliveryRepository.startCalls, 1);
     },
   );
 
-  testWidgets('local failed journey returns to deliveries without API calls', (
+  testWidgets('failed outcome remains local for an active delivery', (
     tester,
   ) async {
     final repository = _authenticatedRepository();
@@ -512,6 +654,7 @@ void main() {
     expect(repository.logoutCalls, 0);
     expect(deliveryRepository.fetchCalls, 1);
     expect(deliveryRepository.detailFetchCalls, 1);
+    expect(deliveryRepository.startCalls, 0);
   });
 
   testWidgets('Account renders only real me data and useful actions', (
@@ -686,7 +829,7 @@ void main() {
     );
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.byKey(const ValueKey('start-delivery-local')));
+    await tester.tap(find.byKey(const ValueKey('start-delivery-api')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('active-navigation-screen')),
@@ -772,7 +915,7 @@ void main() {
 Future<void> _openFirstNavigation(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
   await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const ValueKey('start-delivery-local')));
+  await tester.tap(find.byKey(const ValueKey('start-delivery-api')));
   await tester.pumpAndSettle();
 }
 
@@ -874,6 +1017,10 @@ class _FakeDeliveryRepository implements DeliveryRepository {
     this.details,
     this.detailFailure,
     this.detailCompleter,
+    this.detailResults,
+    this.startedDelivery,
+    this.startFailure,
+    this.startCompleter,
   }) : deliveries = deliveries ?? assignedDeliveriesFixture();
 
   final List<DriverDelivery> deliveries;
@@ -882,9 +1029,15 @@ class _FakeDeliveryRepository implements DeliveryRepository {
   final DriverDeliveryDetails? details;
   DeliveryFailure? detailFailure;
   final Completer<DriverDeliveryDetails>? detailCompleter;
+  final List<DriverDeliveryDetails>? detailResults;
+  final DriverDelivery? startedDelivery;
+  DeliveryFailure? startFailure;
+  final Completer<DriverDelivery>? startCompleter;
   int fetchCalls = 0;
   int detailFetchCalls = 0;
+  int startCalls = 0;
   int? lastDetailId;
+  int? lastStartedDeliveryId;
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries() async {
@@ -908,11 +1061,37 @@ class _FakeDeliveryRepository implements DeliveryRepository {
     if (detailCompleter case final pending?) {
       return pending.future;
     }
+    if (detailResults case final configuredResults?
+        when configuredResults.isNotEmpty) {
+      final index = (detailFetchCalls - 1)
+          .clamp(0, configuredResults.length - 1)
+          .toInt();
+      return configuredResults[index];
+    }
     if (details case final configuredDetails?) {
       return configuredDetails;
     }
     return driverDeliveryDetailsFixture(
       delivery: deliveries.firstWhere((delivery) => delivery.id == deliveryId),
+    );
+  }
+
+  @override
+  Future<DriverDelivery> startDelivery(int deliveryId) async {
+    startCalls += 1;
+    lastStartedDeliveryId = deliveryId;
+    if (startFailure case final deliveryFailure?) {
+      throw deliveryFailure;
+    }
+    if (startCompleter case final pending?) {
+      return pending.future;
+    }
+    if (startedDelivery case final configuredDelivery?) {
+      return configuredDelivery;
+    }
+    return driverDeliveryFixture(
+      id: deliveryId,
+      status: DeliveryStatus.onTheWay,
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_controller.dart';
@@ -89,6 +90,14 @@ class _FakeRepository implements DeliveryRepository {
       throw deliveryFailure;
     }
     return details;
+  }
+
+  @override
+  Future<DriverDelivery> startDelivery(int deliveryId) async {
+    return driverDeliveryFixture(
+      id: deliveryId,
+      status: DeliveryStatus.onTheWay,
+    );
   }
 
   @override

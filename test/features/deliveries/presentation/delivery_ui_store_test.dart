@@ -24,12 +24,14 @@ void main() {
       },
     );
 
-    test('start preview is local and selects the active delivery', () {
+    test('a server start response selects the active delivery', () {
       final store = DeliveryUiStore()
         ..replaceFromServer(assignedDeliveriesFixture());
       addTearDown(store.dispose);
 
-      store.previewStartDelivery(101);
+      store.replaceOneFromServer(
+        driverDeliveryFixture(status: DeliveryStatus.onTheWay),
+      );
 
       expect(store.deliveryById(101).status, DeliveryStatus.onTheWay);
       expect(store.activeDelivery?.id, 101);
@@ -41,7 +43,9 @@ void main() {
         ..replaceFromServer(assignedDeliveriesFixture());
       addTearDown(store.dispose);
 
-      store.previewStartDelivery(101);
+      store.replaceOneFromServer(
+        driverDeliveryFixture(status: DeliveryStatus.onTheWay),
+      );
       store.previewMarkDelivered(101);
       expect(store.deliveryById(101).status, DeliveryStatus.delivered);
       expect(store.doneCount, 2);
@@ -56,8 +60,11 @@ void main() {
       final store = DeliveryUiStore()..replaceFromServer(deliveries);
       addTearDown(store.dispose);
 
-      store.previewStartDelivery(101);
-      expect(store.deliveryById(101).status, DeliveryStatus.onTheWay);
+      store.replaceOneFromServer(
+        driverDeliveryFixture(status: DeliveryStatus.onTheWay),
+      );
+      store.previewMarkDelivered(101);
+      expect(store.deliveryById(101).status, DeliveryStatus.delivered);
 
       store.replaceFromServer(deliveries);
       expect(store.deliveryById(101).status, DeliveryStatus.assigned);

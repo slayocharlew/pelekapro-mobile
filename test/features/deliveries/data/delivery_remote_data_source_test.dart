@@ -118,6 +118,83 @@ void main() {
       expect(details.failureReasons.first.name, 'Customer not reachable');
     });
 
+    test(
+      'posts an empty start request and parses the started delivery',
+      () async {
+        late http.Request capturedRequest;
+        final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+        final delivery =
+            (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+        delivery['status'] = 'on_the_way';
+        final timestamps = delivery['timestamps'] as Map<String, dynamic>;
+        timestamps['started_at'] = '2026-08-17T08:15:00.000000Z';
+        final dataSource = DeliveryRemoteDataSource(
+          ApiClient(
+            baseUri: Uri.parse('https://api.pelekapro.example'),
+            client: MockClient((request) async {
+              capturedRequest = request;
+              return http.Response(
+                jsonEncode({
+                  'success': true,
+                  'message': 'Delivery started successfully',
+                  'data': delivery,
+                }),
+                200,
+              );
+            }),
+          ),
+        );
+
+        final started = await dataSource.startDelivery(
+          101,
+          'stored-driver-token',
+        );
+
+        expect(capturedRequest.method, 'POST');
+        expect(capturedRequest.url.path, '/api/driver/deliveries/101/start');
+        expect(capturedRequest.body, isEmpty);
+        expect(
+          capturedRequest.headers['authorization'],
+          'Bearer stored-driver-token',
+        );
+        expect(started.id, 101);
+        expect(started.status, DeliveryStatus.onTheWay);
+        expect(
+          started.timestamps.startedAt,
+          DateTime.parse('2026-08-17T08:15:00.000000Z'),
+        );
+      },
+    );
+
+    test('rejects an unexpected start response id or status', () async {
+      final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+      final delivery =
+          (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'success': true, 'data': delivery}),
+              200,
+            ),
+          ),
+        ),
+      );
+
+      await expectLater(
+        dataSource.startDelivery(101, 'token'),
+        throwsA(isA<ApiException>()),
+      );
+
+      delivery['status'] = 'on_the_way';
+      delivery['id'] = 999;
+      await expectLater(
+        dataSource.startDelivery(101, 'token'),
+        throwsA(isA<ApiException>()),
+      );
+    });
+
     test('rejects detail responses without valid failure reasons', () async {
       final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
       final delivery =

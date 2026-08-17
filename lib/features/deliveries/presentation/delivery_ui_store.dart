@@ -69,7 +69,9 @@ class DeliveryUiStore extends ChangeNotifier {
       _deliveries[index] = replacement;
     }
 
-    if (_activeDeliveryId == delivery.id && !replacement.status.isActive) {
+    if (replacement.status.isActive) {
+      _activeDeliveryId = delivery.id;
+    } else if (_activeDeliveryId == delivery.id) {
       _activeDeliveryId = null;
     }
     notifyListeners();
@@ -77,12 +79,6 @@ class DeliveryUiStore extends ChangeNotifier {
 
   DeliveryUiModel deliveryById(int id) {
     return _deliveries.firstWhere((delivery) => delivery.id == id);
-  }
-
-  void previewStartDelivery(int id) {
-    _replaceStatus(id, DeliveryStatus.onTheWay);
-    _activeDeliveryId = id;
-    notifyListeners();
   }
 
   void previewMarkDelivered(int id) {

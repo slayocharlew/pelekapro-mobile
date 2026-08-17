@@ -45,5 +45,13 @@ class _UnconfiguredDeliveryRepository implements DeliveryRepository {
   }
 
   @override
+  Future<DriverDelivery> startDelivery(int deliveryId) {
+    throw const DeliveryFailure(
+      message:
+          'The API connection is not configured. Start the app with API_BASE_URL set for your PelekaPro server.',
+    );
+  }
+
+  @override
   void close() {}
 }
