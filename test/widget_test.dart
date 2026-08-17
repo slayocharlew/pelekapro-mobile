@@ -10,9 +10,14 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
 import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
+
+import 'helpers/driver_delivery_fixture.dart';
 
 void main() {
   testWidgets('startup shows the simple brand while checking the session', (
@@ -150,13 +155,103 @@ void main() {
 
   testWidgets('stored driver session restores into deliveries', (tester) async {
     final repository = _authenticatedRepository();
-    await _pumpApp(tester, repository: repository);
+    final deliveryRepository = _FakeDeliveryRepository();
+    await _pumpApp(
+      tester,
+      repository: repository,
+      deliveryRepository: deliveryRepository,
+    );
 
     expect(find.byKey(const ValueKey('driver-shell')), findsOneWidget);
     expect(find.byKey(const ValueKey('deliveries-page')), findsOneWidget);
     expect(find.text('Asha Juma'), findsOneWidget);
     expect(find.text('Kariakoo, Dar es Salaam'), findsOneWidget);
     expect(repository.restoreCalls, 1);
+    expect(deliveryRepository.fetchCalls, 1);
+
+    await tester.tap(find.byKey(const ValueKey('refresh-assigned-deliveries')));
+    await tester.pumpAndSettle();
+    expect(deliveryRepository.fetchCalls, 2);
+  });
+
+  testWidgets('assigned deliveries shows a lightweight loading state', (
+    tester,
+  ) async {
+    _usePhoneSurface(tester);
+    final completer = Completer<List<DriverDelivery>>();
+    final deliveryRepository = _FakeDeliveryRepository(completer: completer);
+
+    await tester.pumpWidget(
+      PelekaProApp(
+        authRepository: _authenticatedRepository(),
+        deliveryRepository: deliveryRepository,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('driver-shell')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('assigned-deliveries-loading')),
+      findsOneWidget,
+    );
+
+    completer.complete(assignedDeliveriesFixture());
+    await tester.pumpAndSettle();
+    expect(find.text('Asha Juma'), findsOneWidget);
+  });
+
+  testWidgets('assigned deliveries supports an empty response', (tester) async {
+    final emptyRepository = _FakeDeliveryRepository(deliveries: const []);
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: emptyRepository,
+    );
+    expect(find.text('No deliveries assigned'), findsOneWidget);
+  });
+
+  testWidgets('assigned deliveries supports error and retry states', (
+    tester,
+  ) async {
+    final failedRepository = _FakeDeliveryRepository(
+      failure: const DeliveryFailure(
+        message: 'Unable to reach PelekaPro. Check your connection.',
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: failedRepository,
+    );
+    expect(find.text('Something went wrong'), findsOneWidget);
+    expect(
+      find.text('Unable to reach PelekaPro. Check your connection.'),
+      findsOneWidget,
+    );
+
+    failedRepository.failure = null;
+    await tester.tap(find.byKey(const ValueKey('retry-assigned-deliveries')));
+    await tester.pumpAndSettle();
+    expect(find.text('Asha Juma'), findsOneWidget);
+    expect(failedRepository.fetchCalls, 2);
+  });
+
+  testWidgets('an expired delivery-list session returns to login', (
+    tester,
+  ) async {
+    final deliveryRepository = _FakeDeliveryRepository(
+      failure: const DeliveryFailure(
+        message: 'Your session has expired. Sign in again.',
+        statusCode: 401,
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+
+    expect(find.byKey(const ValueKey('login-screen')), findsOneWidget);
   });
 
   testWidgets('rejected stored session returns to login', (tester) async {
@@ -205,10 +300,12 @@ void main() {
     expect(find.text('Home'), findsNothing);
   });
 
-  testWidgets('demo delivery opens the concise detail screen', (tester) async {
+  testWidgets('assigned API delivery opens the concise detail screen', (
+    tester,
+  ) async {
     await _pumpApp(tester, repository: _authenticatedRepository());
 
-    await tester.tap(find.byKey(const ValueKey('view-delivery-demo-1')));
+    await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
     await tester.pumpAndSettle();
 
     expect(
@@ -216,8 +313,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('PP-24031'), findsOneWidget);
-    expect(find.text('Uhuru Street, Kariakoo'), findsOneWidget);
-    expect(find.text('Mwai Kibaki Road, Mikocheni'), findsOneWidget);
+    expect(find.textContaining('Uhuru Street, Kariakoo'), findsOneWidget);
+    expect(find.textContaining('Mwai Kibaki Road, Mikocheni'), findsOneWidget);
     expect(find.text('Asha Juma'), findsOneWidget);
     expect(find.text('TZS 25,000'), findsOneWidget);
     expect(find.text('Call on arrival'), findsOneWidget);
@@ -230,7 +327,12 @@ void main() {
     tester,
   ) async {
     final repository = _authenticatedRepository();
-    await _pumpApp(tester, repository: repository);
+    final deliveryRepository = _FakeDeliveryRepository();
+    await _pumpApp(
+      tester,
+      repository: repository,
+      deliveryRepository: deliveryRepository,
+    );
     await _openFirstNavigation(tester);
 
     expect(
@@ -244,13 +346,19 @@ void main() {
     expect(repository.restoreCalls, 1);
     expect(repository.loginCalls, 0);
     expect(repository.logoutCalls, 0);
+    expect(deliveryRepository.fetchCalls, 1);
   });
 
   testWidgets(
     'local delivered journey returns to deliveries without API calls',
     (tester) async {
       final repository = _authenticatedRepository();
-      await _pumpApp(tester, repository: repository);
+      final deliveryRepository = _FakeDeliveryRepository();
+      await _pumpApp(
+        tester,
+        repository: repository,
+        deliveryRepository: deliveryRepository,
+      );
       await _openFirstNavigation(tester);
 
       await tester.tap(find.byKey(const ValueKey('mark-delivered-local')));
@@ -260,7 +368,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Proof of delivery'), findsOneWidget);
-      expect(find.text('Cash'), findsOneWidget);
+      expect(find.text('Cash on delivery'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('confirm-delivered-local')));
       await tester.pumpAndSettle();
@@ -276,6 +384,7 @@ void main() {
       expect(repository.restoreCalls, 1);
       expect(repository.loginCalls, 0);
       expect(repository.logoutCalls, 0);
+      expect(deliveryRepository.fetchCalls, 1);
     },
   );
 
@@ -283,7 +392,12 @@ void main() {
     tester,
   ) async {
     final repository = _authenticatedRepository();
-    await _pumpApp(tester, repository: repository);
+    final deliveryRepository = _FakeDeliveryRepository();
+    await _pumpApp(
+      tester,
+      repository: repository,
+      deliveryRepository: deliveryRepository,
+    );
 
     await tester.tap(find.byKey(const ValueKey('nav-active')));
     await tester.pumpAndSettle();
@@ -320,6 +434,7 @@ void main() {
     expect(repository.restoreCalls, 1);
     expect(repository.loginCalls, 0);
     expect(repository.logoutCalls, 0);
+    expect(deliveryRepository.fetchCalls, 1);
   });
 
   testWidgets('Account renders only real me data and useful actions', (
@@ -422,7 +537,10 @@ void main() {
       tester.view.physicalSize = Size(width, 844);
       tester.view.devicePixelRatio = 1;
       await tester.pumpWidget(
-        PelekaProApp(authRepository: _authenticatedRepository()),
+        PelekaProApp(
+          authRepository: _authenticatedRepository(),
+          deliveryRepository: _FakeDeliveryRepository(),
+        ),
       );
       await tester.pumpAndSettle();
       expect(
@@ -447,10 +565,20 @@ void main() {
     });
 
     await tester.pumpWidget(
-      PelekaProApp(authRepository: _authenticatedRepository()),
+      PelekaProApp(
+        authRepository: _authenticatedRepository(),
+        deliveryRepository: _FakeDeliveryRepository(),
+      ),
     );
     await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
+    final initialException = tester.takeException();
+    expect(
+      initialException,
+      isNull,
+      reason: initialException is FlutterError
+          ? initialException.toStringDeep()
+          : null,
+    );
 
     await tester.tap(find.byKey(const ValueKey('nav-active')));
     await tester.pumpAndSettle();
@@ -470,7 +598,7 @@ void main() {
     expect(find.byKey(const ValueKey('deliveries-page')), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    final viewDelivery = find.byKey(const ValueKey('view-delivery-demo-1'));
+    final viewDelivery = find.byKey(const ValueKey('view-delivery-101'));
     await tester.ensureVisible(viewDelivery);
     await tester.pumpAndSettle();
     await tester.tap(viewDelivery);
@@ -565,16 +693,23 @@ void main() {
 }
 
 Future<void> _openFirstNavigation(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('view-delivery-demo-1')));
+  await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('start-delivery-local')));
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpApp(WidgetTester tester, {AuthRepository? repository}) async {
+Future<void> _pumpApp(
+  WidgetTester tester, {
+  AuthRepository? repository,
+  DeliveryRepository? deliveryRepository,
+}) async {
   _usePhoneSurface(tester);
   await tester.pumpWidget(
-    PelekaProApp(authRepository: repository ?? _FakeAuthRepository()),
+    PelekaProApp(
+      authRepository: repository ?? _FakeAuthRepository(),
+      deliveryRepository: deliveryRepository ?? _FakeDeliveryRepository(),
+    ),
   );
   await tester.pumpAndSettle();
 }
@@ -648,6 +783,34 @@ class _FakeAuthRepository implements AuthRepository {
     if (logoutFailure case final failure?) {
       throw failure;
     }
+  }
+
+  @override
+  void close() {}
+}
+
+class _FakeDeliveryRepository implements DeliveryRepository {
+  _FakeDeliveryRepository({
+    List<DriverDelivery>? deliveries,
+    this.failure,
+    this.completer,
+  }) : deliveries = deliveries ?? assignedDeliveriesFixture();
+
+  final List<DriverDelivery> deliveries;
+  DeliveryFailure? failure;
+  final Completer<List<DriverDelivery>>? completer;
+  int fetchCalls = 0;
+
+  @override
+  Future<List<DriverDelivery>> fetchAssignedDeliveries() async {
+    fetchCalls += 1;
+    if (completer case final pending?) {
+      return pending.future;
+    }
+    if (failure case final deliveryFailure?) {
+      throw deliveryFailure;
+    }
+    return deliveries;
   }
 
   @override

@@ -1,43 +1,94 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_controller.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
 
-class DeliveryDetailsScreen extends StatelessWidget {
+class DeliveryDetailsScreen extends StatefulWidget {
   const DeliveryDetailsScreen({
     required this.deliveryId,
     required this.store,
+    required this.repository,
+    required this.onSessionExpired,
     required this.onReturnToDeliveries,
     super.key,
   });
 
-  final String deliveryId;
-  final DemoDeliveryStore store;
+  final int deliveryId;
+  final DeliveryUiStore store;
+  final DeliveryRepository repository;
+  final VoidCallback onSessionExpired;
   final VoidCallback onReturnToDeliveries;
 
-  void _openNavigation(BuildContext context, DemoDelivery delivery) {
+  @override
+  State<DeliveryDetailsScreen> createState() => _DeliveryDetailsScreenState();
+}
+
+class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
+  late final DeliveryDetailsController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = DeliveryDetailsController(
+      widget.repository,
+      onUnauthorized: widget.onSessionExpired,
+    );
+    unawaited(_loadDetails());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDetails() async {
+    await _controller.load(widget.deliveryId);
+    if (!mounted) {
+      return;
+    }
+    final details = _controller.details;
+    if (_controller.status == DeliveryDetailsStatus.ready && details != null) {
+      widget.store.replaceOneFromServer(details.delivery);
+    }
+  }
+
+  void _openNavigation(
+    DeliveryUiModel delivery,
+    DriverDeliveryDetails details,
+  ) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ActiveNavigationScreen(
           deliveryId: delivery.id,
-          store: store,
-          onReturnToDeliveries: onReturnToDeliveries,
+          store: widget.store,
+          repository: widget.repository,
+          initialDetails: details,
+          onSessionExpired: widget.onSessionExpired,
+          onReturnToDeliveries: widget.onReturnToDeliveries,
         ),
       ),
     );
   }
 
-  void _startLocally(BuildContext context, DemoDelivery delivery) {
-    store.startDelivery(delivery.id);
-    _openNavigation(context, store.deliveryById(delivery.id));
+  void _startLocally(DeliveryUiModel delivery, DriverDeliveryDetails details) {
+    widget.store.previewStartDelivery(delivery.id);
+    _openNavigation(widget.store.deliveryById(delivery.id), details);
   }
 
-  void _showContactPreview(BuildContext context) {
+  void _showContactPreview() {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -50,9 +101,24 @@ class DeliveryDetailsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: store,
+      animation: Listenable.merge([_controller, widget.store]),
       builder: (context, _) {
-        final delivery = store.deliveryById(deliveryId);
+        final details = _controller.details;
+        if (_controller.status == DeliveryDetailsStatus.initial ||
+            _controller.status == DeliveryDetailsStatus.loading) {
+          return const _DeliveryDetailsLoading();
+        }
+        if (_controller.status == DeliveryDetailsStatus.failure ||
+            details == null) {
+          return _DeliveryDetailsError(
+            message:
+                _controller.errorMessage ??
+                'The delivery details could not be loaded.',
+            onRetry: _loadDetails,
+          );
+        }
+
+        final delivery = widget.store.deliveryById(widget.deliveryId);
         return Scaffold(
           key: const ValueKey('delivery-details-screen'),
           appBar: AppBar(title: const Text('Delivery details')),
@@ -70,7 +136,7 @@ class DeliveryDetailsScreen extends StatelessWidget {
               const SizedBox(height: AppSpacing.md),
               _CustomerSection(
                 delivery: delivery,
-                onContact: () => _showContactPreview(context),
+                onContact: _showContactPreview,
               ),
               const SizedBox(height: AppSpacing.md),
               _DeliveryInformation(delivery: delivery),
@@ -85,8 +151,8 @@ class DeliveryDetailsScreen extends StatelessWidget {
             ),
             child: _BottomAction(
               delivery: delivery,
-              onStart: () => _startLocally(context, delivery),
-              onContinue: () => _openNavigation(context, delivery),
+              onStart: () => _startLocally(delivery, details),
+              onContinue: () => _openNavigation(delivery, details),
             ),
           ),
         );
@@ -95,10 +161,78 @@ class DeliveryDetailsScreen extends StatelessWidget {
   }
 }
 
+class _DeliveryDetailsLoading extends StatelessWidget {
+  const _DeliveryDetailsLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      key: ValueKey('delivery-details-screen'),
+      appBar: AppBar(title: Text('Delivery details')),
+      body: Center(
+        child: SizedBox.square(
+          key: ValueKey('delivery-details-loading'),
+          dimension: 28,
+          child: CircularProgressIndicator(strokeWidth: 2.5),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeliveryDetailsError extends StatelessWidget {
+  const _DeliveryDetailsError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: const ValueKey('delivery-details-screen'),
+      appBar: AppBar(title: const Text('Delivery details')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.page),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                color: AppColors.postmanOrange,
+                size: 42,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Something went wrong',
+                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                message,
+                style: const TextStyle(color: AppColors.mutedInk),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              OutlinedButton.icon(
+                key: const ValueKey('retry-delivery-details'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DeliveryIdentity extends StatelessWidget {
   const _DeliveryIdentity({required this.delivery});
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
 
   @override
   Widget build(BuildContext context) {
@@ -129,7 +263,7 @@ class _DeliveryIdentity extends StatelessWidget {
 class _RouteSummary extends StatelessWidget {
   const _RouteSummary({required this.delivery});
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
 
   @override
   Widget build(BuildContext context) {
@@ -218,11 +352,17 @@ class _RouteStop extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: AppSpacing.xxs),
-              Text(
-                address,
-                style: const TextStyle(color: AppColors.mutedInk, fontSize: 13),
-              ),
+              if (address.trim().toLowerCase() !=
+                  area.trim().toLowerCase()) ...[
+                const SizedBox(height: AppSpacing.xxs),
+                Text(
+                  address,
+                  style: const TextStyle(
+                    color: AppColors.mutedInk,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -234,7 +374,7 @@ class _RouteStop extends StatelessWidget {
 class _CustomerSection extends StatelessWidget {
   const _CustomerSection({required this.delivery, required this.onContact});
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
   final VoidCallback onContact;
 
   @override
@@ -287,7 +427,7 @@ class _CustomerSection extends StatelessWidget {
 class _DeliveryInformation extends StatelessWidget {
   const _DeliveryInformation({required this.delivery});
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
 
   @override
   Widget build(BuildContext context) {
@@ -306,31 +446,20 @@ class _DeliveryInformation extends StatelessWidget {
           _InformationRow(
             icon: Icons.account_balance_wallet_outlined,
             label: 'Payment',
-            title: _formatTzs(delivery.amountToCollect),
+            title: formatTzs(delivery.amountToCollect),
             subtitle: delivery.paymentMethod,
           ),
-          const Divider(indent: 52),
-          _InformationRow(
-            icon: Icons.notes_rounded,
-            label: 'Note',
-            title: delivery.note,
-          ),
+          if (delivery.note case final note?) ...[
+            const Divider(indent: 52),
+            _InformationRow(
+              icon: Icons.notes_rounded,
+              label: 'Delivery instruction',
+              title: note,
+            ),
+          ],
         ],
       ),
     );
-  }
-
-  String _formatTzs(int amount) {
-    final digits = amount.toString();
-    final buffer = StringBuffer();
-    for (var index = 0; index < digits.length; index++) {
-      final remaining = digits.length - index;
-      buffer.write(digits[index]);
-      if (remaining > 1 && remaining % 3 == 1) {
-        buffer.write(',');
-      }
-    }
-    return 'TZS $buffer';
   }
 }
 
@@ -402,7 +531,7 @@ class _BottomAction extends StatelessWidget {
     required this.onContinue,
   });
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
   final VoidCallback onStart;
   final VoidCallback onContinue;
 
@@ -434,9 +563,12 @@ class _BottomAction extends StatelessWidget {
         border: Border.all(color: AppColors.border),
       ),
       child: Text(
-        delivery.status == DemoDeliveryStatus.failed
-            ? 'Delivery failed'
-            : 'Delivery completed',
+        switch (delivery.status) {
+          DeliveryStatus.delivered => 'Delivery completed',
+          DeliveryStatus.failed => 'Delivery failed',
+          DeliveryStatus.cancelled => 'Delivery cancelled',
+          _ => 'Delivery not ready',
+        },
         style: const TextStyle(
           color: AppColors.mutedInk,
           fontWeight: FontWeight.w600,

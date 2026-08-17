@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_controller.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/mark_delivered_screen.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/report_issue_screen.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
@@ -12,22 +18,60 @@ class ActiveNavigationScreen extends StatefulWidget {
   const ActiveNavigationScreen({
     required this.deliveryId,
     required this.store,
+    required this.repository,
+    required this.onSessionExpired,
     required this.onReturnToDeliveries,
+    this.initialDetails,
     super.key,
   });
 
-  final String deliveryId;
-  final DemoDeliveryStore store;
+  final int deliveryId;
+  final DeliveryUiStore store;
+  final DeliveryRepository repository;
+  final VoidCallback onSessionExpired;
   final VoidCallback onReturnToDeliveries;
+  final DriverDeliveryDetails? initialDetails;
 
   @override
   State<ActiveNavigationScreen> createState() => _ActiveNavigationScreenState();
 }
 
 class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
+  late final DeliveryDetailsController _detailsController;
   var _isMuted = false;
 
-  void _openDelivered(DemoDelivery delivery) {
+  @override
+  void initState() {
+    super.initState();
+    _detailsController = DeliveryDetailsController(
+      widget.repository,
+      onUnauthorized: widget.onSessionExpired,
+      initialDetails: widget.initialDetails,
+    );
+    if (widget.initialDetails == null) {
+      unawaited(_loadDetails());
+    }
+  }
+
+  @override
+  void dispose() {
+    _detailsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDetails() async {
+    await _detailsController.load(widget.deliveryId);
+    if (!mounted) {
+      return;
+    }
+    final details = _detailsController.details;
+    if (_detailsController.status == DeliveryDetailsStatus.ready &&
+        details != null) {
+      widget.store.replaceOneFromServer(details.delivery);
+    }
+  }
+
+  void _openDelivered(DeliveryUiModel delivery) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MarkDeliveredScreen(
@@ -39,12 +83,17 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     );
   }
 
-  void _openIssue(DemoDelivery delivery) {
+  void _openIssue(DeliveryUiModel delivery) {
+    final details = _detailsController.details;
+    if (details == null) {
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReportIssueScreen(
           deliveryId: delivery.id,
           store: widget.store,
+          failureReasons: details.failureReasons,
           onReturnToDeliveries: widget.onReturnToDeliveries,
         ),
       ),
@@ -53,89 +102,100 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final delivery = widget.store.deliveryById(widget.deliveryId);
-    return Scaffold(
-      key: const ValueKey('active-navigation-screen'),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: _NavigationMap(
-              destination: delivery.dropoffArea.split(',').first,
-            ),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.sm,
-                AppSpacing.xs,
-                AppSpacing.sm,
-                0,
+    return AnimatedBuilder(
+      animation: Listenable.merge([_detailsController, widget.store]),
+      builder: (context, _) {
+        final delivery = widget.store.deliveryById(widget.deliveryId);
+        return Scaffold(
+          key: const ValueKey('active-navigation-screen'),
+          body: Stack(
+            children: [
+              Positioned.fill(
+                child: _NavigationMap(
+                  destination: delivery.dropoffArea.split(',').first,
+                ),
               ),
-              child: Column(
-                children: [
-                  _NavigationTopBar(
-                    onBack: () => Navigator.of(context).pop(),
-                    onCall: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Calling will use the live customer number later.',
+              SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.sm,
+                    AppSpacing.xs,
+                    AppSpacing.sm,
+                    0,
+                  ),
+                  child: Column(
+                    children: [
+                      _NavigationTopBar(
+                        onBack: () => Navigator.of(context).pop(),
+                        onCall: () => ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Calling will use the live customer number later.',
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: AppSpacing.sm),
+                      const _TurnInstruction(),
+                    ],
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  const _TurnInstruction(),
-                ],
+                ),
               ),
-            ),
-          ),
-          Positioned(
-            right: AppSpacing.sm,
-            top: MediaQuery.paddingOf(context).top + 190,
-            child: Column(
-              children: [
-                _MapControl(
-                  icon: _isMuted
-                      ? Icons.volume_off_outlined
-                      : Icons.volume_up_outlined,
-                  label: _isMuted ? 'Unmute guidance' : 'Mute guidance',
-                  onPressed: () => setState(() => _isMuted = !_isMuted),
+              Positioned(
+                right: AppSpacing.sm,
+                top: MediaQuery.paddingOf(context).top + 190,
+                child: Column(
+                  children: [
+                    _MapControl(
+                      icon: _isMuted
+                          ? Icons.volume_off_outlined
+                          : Icons.volume_up_outlined,
+                      label: _isMuted ? 'Unmute guidance' : 'Mute guidance',
+                      onPressed: () => setState(() => _isMuted = !_isMuted),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    const _MapControl(
+                      icon: Icons.explore_outlined,
+                      label: 'Compass',
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    const _MapControl(
+                      icon: Icons.my_location_rounded,
+                      label: 'Recenter',
+                    ),
+                  ],
                 ),
-                const SizedBox(height: AppSpacing.xs),
-                const _MapControl(
-                  icon: Icons.explore_outlined,
-                  label: 'Compass',
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                const _MapControl(
-                  icon: Icons.my_location_rounded,
-                  label: 'Recenter',
-                ),
-              ],
-            ),
+              ),
+              Positioned(
+                left: AppSpacing.sm,
+                bottom: MediaQuery.sizeOf(context).height * 0.45,
+                child: const _MapAttribution(),
+              ),
+              DraggableScrollableSheet(
+                initialChildSize: 0.44,
+                minChildSize: 0.38,
+                maxChildSize: 0.72,
+                snap: true,
+                builder: (context, scrollController) {
+                  return _DeliveryNavigationSheet(
+                    delivery: delivery,
+                    scrollController: scrollController,
+                    detailsStatus: _detailsController.status,
+                    detailsError: _detailsController.errorMessage,
+                    failureReasonsAvailable:
+                        _detailsController.details?.failureReasons.isNotEmpty ??
+                        false,
+                    onRetryDetails: _loadDetails,
+                    onDelivered: () => _openDelivered(delivery),
+                    onIssue: () => _openIssue(delivery),
+                  );
+                },
+              ),
+            ],
           ),
-          Positioned(
-            left: AppSpacing.sm,
-            bottom: MediaQuery.sizeOf(context).height * 0.45,
-            child: const _MapAttribution(),
-          ),
-          DraggableScrollableSheet(
-            initialChildSize: 0.44,
-            minChildSize: 0.38,
-            maxChildSize: 0.72,
-            snap: true,
-            builder: (context, scrollController) {
-              return _DeliveryNavigationSheet(
-                delivery: delivery,
-                scrollController: scrollController,
-                onDelivered: () => _openDelivered(delivery),
-                onIssue: () => _openIssue(delivery),
-              );
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -591,12 +651,20 @@ class _DeliveryNavigationSheet extends StatelessWidget {
   const _DeliveryNavigationSheet({
     required this.delivery,
     required this.scrollController,
+    required this.detailsStatus,
+    required this.detailsError,
+    required this.failureReasonsAvailable,
+    required this.onRetryDetails,
     required this.onDelivered,
     required this.onIssue,
   });
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
   final ScrollController scrollController;
+  final DeliveryDetailsStatus detailsStatus;
+  final String? detailsError;
+  final bool failureReasonsAvailable;
+  final VoidCallback onRetryDetails;
   final VoidCallback onDelivered;
   final VoidCallback onIssue;
 
@@ -670,26 +738,44 @@ class _DeliveryNavigationSheet extends StatelessWidget {
             value: _shortArea(delivery.dropoffArea),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Expanded(
-                child: _SheetMetric(
-                  label: 'Last update',
-                  value: delivery.lastUpdate,
-                ),
-              ),
-              Expanded(
-                child: _SheetMetric(
-                  label: 'ETA',
-                  value: '${delivery.eta} • ${delivery.distance}',
-                ),
-              ),
-            ],
+          _SheetMetric(
+            label: 'Last update',
+            value: formatDeliveryTime(context, delivery.lastUpdatedAt),
           ),
           const SizedBox(height: AppSpacing.md),
           const _DeliveryProgress(),
           const SizedBox(height: AppSpacing.md),
-          _NavigationActions(onDelivered: onDelivered, onIssue: onIssue),
+          if (detailsStatus == DeliveryDetailsStatus.loading) ...[
+            const LinearProgressIndicator(
+              key: ValueKey('active-delivery-details-loading'),
+              minHeight: 2,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ] else if (detailsStatus == DeliveryDetailsStatus.failure) ...[
+            _InlineDetailsError(
+              message: detailsError ?? 'Delivery details are unavailable.',
+              onRetry: onRetryDetails,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ] else if (detailsStatus == DeliveryDetailsStatus.ready &&
+              !failureReasonsAvailable) ...[
+            const Text(
+              'No issue reasons are currently available.',
+              key: ValueKey('no-failure-reasons'),
+              style: TextStyle(color: AppColors.mutedInk, fontSize: 12),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          _NavigationActions(
+            onDelivered: detailsStatus == DeliveryDetailsStatus.ready
+                ? onDelivered
+                : null,
+            onIssue:
+                detailsStatus == DeliveryDetailsStatus.ready &&
+                    failureReasonsAvailable
+                ? onIssue
+                : null,
+          ),
         ],
       ),
     );
@@ -698,11 +784,53 @@ class _DeliveryNavigationSheet extends StatelessWidget {
   static String _shortArea(String value) => value.split(',').first;
 }
 
+class _InlineDetailsError extends StatelessWidget {
+  const _InlineDetailsError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('active-delivery-details-error'),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.postmanOrangeSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.postmanOrangeDark,
+            size: 20,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('retry-active-delivery-details'),
+            onPressed: onRetry,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _NavigationActions extends StatelessWidget {
   const _NavigationActions({required this.onDelivered, required this.onIssue});
 
-  final VoidCallback onDelivered;
-  final VoidCallback onIssue;
+  final VoidCallback? onDelivered;
+  final VoidCallback? onIssue;
 
   @override
   Widget build(BuildContext context) {

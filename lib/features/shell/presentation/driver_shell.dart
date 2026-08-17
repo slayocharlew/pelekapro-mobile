@@ -1,27 +1,36 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/account/presentation/account_page.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_deliveries_page.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/assigned_deliveries_controller.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/deliveries_page.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_screen.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 
 class DriverShell extends StatefulWidget {
   const DriverShell({
     required this.user,
     required this.repository,
+    required this.deliveryRepository,
     required this.onRefreshAccount,
+    required this.onSessionExpired,
     required this.onLoggedOut,
     super.key,
   });
 
   final AuthUser user;
   final AuthRepository repository;
+  final DeliveryRepository deliveryRepository;
   final VoidCallback onRefreshAccount;
+  final VoidCallback onSessionExpired;
   final VoidCallback onLoggedOut;
 
   @override
@@ -29,24 +38,58 @@ class DriverShell extends StatefulWidget {
 }
 
 class _DriverShellState extends State<DriverShell> {
-  late final DemoDeliveryStore _demoStore;
+  late final AssignedDeliveriesController _deliveriesController;
+  late final DeliveryUiStore _deliveryStore;
+  List<DriverDelivery>? _lastSyncedDeliveries;
   var _selectedIndex = 0;
   var _deliveryFilter = DeliveryFilter.all;
 
   @override
   void initState() {
     super.initState();
-    _demoStore = DemoDeliveryStore();
+    _deliveryStore = DeliveryUiStore();
+    _deliveriesController = AssignedDeliveriesController(
+      widget.deliveryRepository,
+      onUnauthorized: _handleSessionExpired,
+    )..addListener(_syncDeliveries);
+    unawaited(_deliveriesController.load());
   }
 
   @override
   void dispose() {
-    _demoStore.dispose();
+    _deliveriesController
+      ..removeListener(_syncDeliveries)
+      ..dispose();
+    _deliveryStore.dispose();
     super.dispose();
+  }
+
+  void _syncDeliveries() {
+    final status = _deliveriesController.status;
+    if (status != AssignedDeliveriesStatus.ready &&
+        status != AssignedDeliveriesStatus.empty) {
+      return;
+    }
+
+    final deliveries = _deliveriesController.deliveries;
+    if (identical(deliveries, _lastSyncedDeliveries)) {
+      return;
+    }
+
+    _lastSyncedDeliveries = deliveries;
+    _deliveryStore.replaceFromServer(deliveries);
   }
 
   void _selectPage(int index) {
     setState(() => _selectedIndex = index);
+  }
+
+  void _handleSessionExpired() {
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    widget.onSessionExpired();
   }
 
   void _showHistory() {
@@ -64,24 +107,28 @@ class _DriverShellState extends State<DriverShell> {
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
-  void _openDetails(DemoDelivery delivery) {
+  void _openDetails(DeliveryUiModel delivery) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => DeliveryDetailsScreen(
           deliveryId: delivery.id,
-          store: _demoStore,
+          store: _deliveryStore,
+          repository: widget.deliveryRepository,
+          onSessionExpired: _handleSessionExpired,
           onReturnToDeliveries: _returnToDeliveries,
         ),
       ),
     );
   }
 
-  void _openNavigation(DemoDelivery delivery) {
+  void _openNavigation(DeliveryUiModel delivery) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ActiveNavigationScreen(
           deliveryId: delivery.id,
-          store: _demoStore,
+          store: _deliveryStore,
+          repository: widget.deliveryRepository,
+          onSessionExpired: _handleSessionExpired,
           onReturnToDeliveries: _returnToDeliveries,
         ),
       ),
@@ -97,7 +144,8 @@ class _DriverShellState extends State<DriverShell> {
         children: [
           DeliveriesPage(
             user: widget.user,
-            store: _demoStore,
+            controller: _deliveriesController,
+            store: _deliveryStore,
             filter: _deliveryFilter,
             onFilterChanged: (filter) {
               setState(() => _deliveryFilter = filter);
@@ -105,7 +153,8 @@ class _DriverShellState extends State<DriverShell> {
             onOpenDelivery: _openDetails,
           ),
           ActiveDeliveriesPage(
-            store: _demoStore,
+            controller: _deliveriesController,
+            store: _deliveryStore,
             onOpenNavigation: _openNavigation,
           ),
           AccountPage(

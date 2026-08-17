@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure_reason.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_result_screen.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
@@ -12,12 +13,14 @@ class ReportIssueScreen extends StatefulWidget {
   const ReportIssueScreen({
     required this.deliveryId,
     required this.store,
+    required this.failureReasons,
     required this.onReturnToDeliveries,
     super.key,
   });
 
-  final String deliveryId;
-  final DemoDeliveryStore store;
+  final int deliveryId;
+  final DeliveryUiStore store;
+  final List<DeliveryFailureReason> failureReasons;
   final VoidCallback onReturnToDeliveries;
 
   @override
@@ -26,15 +29,7 @@ class ReportIssueScreen extends StatefulWidget {
 
 class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final _noteController = TextEditingController();
-  String? _selectedReason;
-
-  static const reasons = [
-    'Customer unavailable',
-    'Wrong address',
-    'No answer',
-    'Rescheduled',
-    'Other',
-  ];
+  int? _selectedReasonId;
 
   @override
   void dispose() {
@@ -52,9 +47,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
       );
   }
 
-  void _submitLocally(DemoDelivery delivery) {
+  void _submitLocally(DeliveryUiModel delivery) {
     FocusScope.of(context).unfocus();
-    widget.store.reportFailed(delivery.id);
+    widget.store.previewReportFailed(delivery.id);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => DeliveryResultScreen(
@@ -88,11 +83,17 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: AppSpacing.sm),
-          for (final reason in reasons)
+          for (final reason in widget.failureReasons)
             _ReasonRow(
               reason: reason,
-              isSelected: _selectedReason == reason,
-              onTap: () => setState(() => _selectedReason = reason),
+              isSelected: _selectedReasonId == reason.id,
+              onTap: () => setState(() => _selectedReasonId = reason.id),
+            ),
+          if (widget.failureReasons.isEmpty)
+            const Text(
+              'No issue reasons are currently available.',
+              key: ValueKey('no-report-issue-reasons'),
+              style: TextStyle(color: AppColors.mutedInk),
             ),
           const SizedBox(height: AppSpacing.lg),
           const Text(
@@ -166,7 +167,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
         child: PrimaryButton(
           key: const ValueKey('submit-issue-local'),
           label: 'Submit issue',
-          onPressed: _selectedReason == null
+          onPressed: _selectedReasonId == null
               ? null
               : () => _submitLocally(delivery),
         ),
@@ -178,7 +179,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
 class _IssueSummary extends StatelessWidget {
   const _IssueSummary({required this.delivery});
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
 
   @override
   Widget build(BuildContext context) {
@@ -243,7 +244,7 @@ class _ReasonRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final String reason;
+  final DeliveryFailureReason reason;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -252,11 +253,11 @@ class _ReasonRow extends StatelessWidget {
     return Semantics(
       selected: isSelected,
       button: true,
-      label: reason,
+      label: reason.name,
       excludeSemantics: true,
       child: InkWell(
         key: ValueKey(
-          'issue-reason-${reason.toLowerCase().replaceAll(' ', '-')}',
+          'issue-reason-${reason.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '')}',
         ),
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
@@ -274,7 +275,7 @@ class _ReasonRow extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: Text(reason, style: const TextStyle(fontSize: 15)),
+                child: Text(reason.name, style: const TextStyle(fontSize: 15)),
               ),
             ],
           ),

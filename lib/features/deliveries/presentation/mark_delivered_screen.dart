@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_result_screen.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 
@@ -16,8 +17,8 @@ class MarkDeliveredScreen extends StatefulWidget {
     super.key,
   });
 
-  final String deliveryId;
-  final DemoDeliveryStore store;
+  final int deliveryId;
+  final DeliveryUiStore store;
   final VoidCallback onReturnToDeliveries;
 
   @override
@@ -43,9 +44,9 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
       );
   }
 
-  void _confirmLocally(DemoDelivery delivery) {
+  void _confirmLocally(DeliveryUiModel delivery) {
     FocusScope.of(context).unfocus();
-    widget.store.markDelivered(delivery.id);
+    widget.store.previewMarkDelivered(delivery.id);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => DeliveryResultScreen(
@@ -77,68 +78,72 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
             style: TextStyle(color: AppColors.mutedInk, fontSize: 15),
           ),
           const SizedBox(height: AppSpacing.lg),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Proof of delivery',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _PhotoUploadArea(onTap: _showPhotoPreview),
-              ],
+          if (delivery.proofSupported) ...[
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Proof of delivery',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  _PhotoUploadArea(onTap: _showPhotoPreview),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Delivery PIN',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                SizedBox(
-                  width: 220,
-                  child: TextField(
-                    key: const ValueKey('delivery-pin-input'),
-                    controller: _pinController,
-                    obscureText: true,
-                    obscuringCharacter: '•',
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    maxLength: 4,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 18,
-                    ),
-                    decoration: const InputDecoration(
-                      counterText: '',
-                      hintText: '••••',
-                      contentPadding: EdgeInsets.symmetric(vertical: 14),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          if (delivery.pinRequired) ...[
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Delivery PIN',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(
+                    width: 220,
+                    child: TextField(
+                      key: const ValueKey('delivery-pin-input'),
+                      controller: _pinController,
+                      obscureText: true,
+                      obscuringCharacter: '•',
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      maxLength: 4,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 18,
+                      ),
+                      decoration: const InputDecoration(
+                        counterText: '',
+                        hintText: '••••',
+                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
+          ],
           AppCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
                 _PaymentRow(
                   label: 'Collected amount',
-                  value: _formatTzs(delivery.amountToCollect),
+                  value: formatTzs(delivery.amountToCollect),
                 ),
                 const Divider(indent: AppSpacing.md, endIndent: AppSpacing.md),
-                const _PaymentRow(
+                _PaymentRow(
                   label: 'Payment method',
-                  value: 'Cash',
+                  value: delivery.paymentMethod,
                   badge: true,
                 ),
               ],
@@ -176,19 +181,6 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
         ),
       ),
     );
-  }
-
-  String _formatTzs(int amount) {
-    final digits = amount.toString();
-    final buffer = StringBuffer();
-    for (var index = 0; index < digits.length; index++) {
-      final remaining = digits.length - index;
-      buffer.write(digits[index]);
-      if (remaining > 1 && remaining % 3 == 1) {
-        buffer.write(',');
-      }
-    }
-    return 'TZS $buffer';
   }
 }
 
@@ -284,22 +276,27 @@ class _PaymentRow extends StatelessWidget {
               style: const TextStyle(color: AppColors.mutedInk, fontSize: 13),
             ),
           ),
-          Container(
-            padding: badge
-                ? const EdgeInsets.symmetric(horizontal: 9, vertical: 5)
-                : EdgeInsets.zero,
-            decoration: badge
-                ? BoxDecoration(
-                    color: AppColors.postmanOrangeSoft,
-                    borderRadius: BorderRadius.circular(8),
-                  )
-                : null,
-            child: Text(
-              value,
-              style: TextStyle(
-                color: badge ? AppColors.postmanOrangeDark : AppColors.ink,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
+          Flexible(
+            child: Container(
+              padding: badge
+                  ? const EdgeInsets.symmetric(horizontal: 9, vertical: 5)
+                  : EdgeInsets.zero,
+              decoration: badge
+                  ? BoxDecoration(
+                      color: AppColors.postmanOrangeSoft,
+                      borderRadius: BorderRadius.circular(8),
+                    )
+                  : null,
+              child: Text(
+                value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  color: badge ? AppColors.postmanOrangeDark : AppColors.ink,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),

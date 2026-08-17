@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery.dart';
-import 'package:pelekapro_mobile/features/deliveries/demo/demo_delivery_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/assigned_deliveries_controller.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
+import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
@@ -13,6 +15,7 @@ enum DeliveryFilter { all, active, done }
 class DeliveriesPage extends StatelessWidget {
   const DeliveriesPage({
     required this.user,
+    required this.controller,
     required this.store,
     required this.filter,
     required this.onFilterChanged,
@@ -21,16 +24,17 @@ class DeliveriesPage extends StatelessWidget {
   });
 
   final AuthUser user;
-  final DemoDeliveryStore store;
+  final AssignedDeliveriesController controller;
+  final DeliveryUiStore store;
   final DeliveryFilter filter;
   final ValueChanged<DeliveryFilter> onFilterChanged;
-  final ValueChanged<DemoDelivery> onOpenDelivery;
+  final ValueChanged<DeliveryUiModel> onOpenDelivery;
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: AnimatedBuilder(
-        animation: store,
+        animation: Listenable.merge([controller, store]),
         builder: (context, _) {
           final deliveries = switch (filter) {
             DeliveryFilter.all => store.deliveries,
@@ -44,92 +48,105 @@ class DeliveriesPage extends StatelessWidget {
                   .toList(),
           };
 
-          return CustomScrollView(
-            key: const ValueKey('deliveries-page'),
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.page,
-                  AppSpacing.md,
-                  AppSpacing.page,
-                  AppSpacing.xl,
-                ),
-                sliver: SliverList.list(
-                  children: [
-                    _DriverHeader(user: user),
-                    const SizedBox(height: AppSpacing.xl),
-                    Text(
-                      'Assigned deliveries',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.xxs),
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Your deliveries for today',
-                            style: TextStyle(
-                              color: AppColors.mutedInk,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.border),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'UI DEMO',
-                            style: TextStyle(
-                              color: AppColors.mutedInk,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _SummaryRow(store: store),
-                    const SizedBox(height: AppSpacing.lg),
-                    _FilterRow(selected: filter, onChanged: onFilterChanged),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-                ),
-              ),
-              if (deliveries.isEmpty)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: _EmptyDeliveries(),
-                )
-              else
+          final isInitialLoading =
+              store.deliveries.isEmpty &&
+              (controller.status == AssignedDeliveriesStatus.initial ||
+                  controller.status == AssignedDeliveriesStatus.loading);
+          final hasBlockingError =
+              store.deliveries.isEmpty &&
+              controller.status == AssignedDeliveriesStatus.failure;
+
+          return RefreshIndicator(
+            onRefresh: controller.refresh,
+            child: CustomScrollView(
+              key: const ValueKey('deliveries-page'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.page,
-                    0,
+                    AppSpacing.md,
                     AppSpacing.page,
                     AppSpacing.xl,
                   ),
-                  sliver: SliverList.separated(
-                    itemCount: deliveries.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final delivery = deliveries[index];
-                      return _DeliveryCard(
-                        delivery: delivery,
-                        onOpen: () => onOpenDelivery(delivery),
-                      );
-                    },
+                  sliver: SliverList.list(
+                    children: [
+                      _DriverHeader(
+                        user: user,
+                        isRefreshing:
+                            controller.status ==
+                            AssignedDeliveriesStatus.refreshing,
+                        onRefresh: controller.refresh,
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      Text(
+                        'Assigned deliveries',
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.xxs),
+                      const Text(
+                        'Your deliveries for today',
+                        style: TextStyle(
+                          color: AppColors.mutedInk,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      _SummaryRow(store: store),
+                      const SizedBox(height: AppSpacing.lg),
+                      _FilterRow(selected: filter, onChanged: onFilterChanged),
+                      const SizedBox(height: AppSpacing.md),
+                      if (controller.status ==
+                              AssignedDeliveriesStatus.failure &&
+                          store.deliveries.isNotEmpty)
+                        _InlineRefreshError(
+                          message: controller.errorMessage!,
+                          onRetry: controller.refresh,
+                        ),
+                    ],
                   ),
                 ),
-            ],
+                if (isInitialLoading)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _LoadingDeliveries(),
+                  )
+                else if (hasBlockingError)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _DeliveryError(
+                      message: controller.errorMessage!,
+                      onRetry: controller.load,
+                    ),
+                  )
+                else if (deliveries.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _EmptyDeliveries(filter: filter),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.page,
+                      0,
+                      AppSpacing.page,
+                      AppSpacing.xl,
+                    ),
+                    sliver: SliverList.separated(
+                      itemCount: deliveries.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final delivery = deliveries[index];
+                        return _DeliveryCard(
+                          delivery: delivery,
+                          onOpen: () => onOpenDelivery(delivery),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),
@@ -138,40 +155,73 @@ class DeliveriesPage extends StatelessWidget {
 }
 
 class _DriverHeader extends StatelessWidget {
-  const _DriverHeader({required this.user});
+  const _DriverHeader({
+    required this.user,
+    required this.isRefreshing,
+    required this.onRefresh,
+  });
 
   final AuthUser user;
+  final bool isRefreshing;
+  final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const PelekaProBrand(compact: true),
-        const Spacer(),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                user.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showDriverName = constraints.maxWidth >= 400;
+        return Row(
+          children: [
+            const Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: PelekaProBrand(compact: true),
+              ),
+            ),
+            if (showDriverName) ...[
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      user.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Text(
+                      'Driver',
+                      style: TextStyle(color: AppColors.mutedInk, fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
-              const Text(
-                'Driver',
-                style: TextStyle(color: AppColors.mutedInk, fontSize: 12),
-              ),
+              const SizedBox(width: AppSpacing.sm),
             ],
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _InitialsAvatar(name: user.name),
-      ],
+            IconButton(
+              key: const ValueKey('refresh-assigned-deliveries'),
+              onPressed: isRefreshing ? null : onRefresh,
+              tooltip: 'Refresh assigned deliveries',
+              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+              icon: isRefreshing
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Tooltip(
+              message: user.name,
+              child: _InitialsAvatar(name: user.name),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -205,7 +255,7 @@ class _InitialsAvatar extends StatelessWidget {
 class _SummaryRow extends StatelessWidget {
   const _SummaryRow({required this.store});
 
-  final DemoDeliveryStore store;
+  final DeliveryUiStore store;
 
   @override
   Widget build(BuildContext context) {
@@ -353,7 +403,7 @@ class _FilterChip extends StatelessWidget {
 class _DeliveryCard extends StatelessWidget {
   const _DeliveryCard({required this.delivery, required this.onOpen});
 
-  final DemoDelivery delivery;
+  final DeliveryUiModel delivery;
   final VoidCallback onOpen;
 
   @override
@@ -421,7 +471,7 @@ class _DeliveryCard extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.xs),
               Text(
-                delivery.scheduledTime,
+                formatDeliveryTime(context, delivery.assignedAt),
                 style: const TextStyle(color: AppColors.mutedInk, fontSize: 13),
               ),
               const Spacer(),
@@ -480,28 +530,138 @@ class _RouteLine extends StatelessWidget {
 }
 
 class _EmptyDeliveries extends StatelessWidget {
-  const _EmptyDeliveries();
+  const _EmptyDeliveries({required this.filter});
+
+  final DeliveryFilter filter;
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final message = switch (filter) {
+      DeliveryFilter.all => 'No deliveries assigned',
+      DeliveryFilter.active => 'No active delivery',
+      DeliveryFilter.done => 'No completed deliveries',
+    };
+
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.inventory_2_outlined,
               size: 42,
               color: AppColors.mutedInk,
             ),
-            SizedBox(height: AppSpacing.sm),
+            const SizedBox(height: AppSpacing.sm),
             Text(
-              'No deliveries assigned',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              message,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingDeliveries extends StatelessWidget {
+  const _LoadingDeliveries();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: SizedBox.square(
+        key: ValueKey('assigned-deliveries-loading'),
+        dimension: 28,
+        child: CircularProgressIndicator(strokeWidth: 2.5),
+      ),
+    );
+  }
+}
+
+class _DeliveryError extends StatelessWidget {
+  const _DeliveryError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.cloud_off_outlined,
+              size: 42,
+              color: AppColors.mutedInk,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            const Text(
+              'Something went wrong',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.mutedInk, fontSize: 13),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              key: const ValueKey('retry-assigned-deliveries'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineRefreshError extends StatelessWidget {
+  const _InlineRefreshError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: AppSpacing.xs),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.sm,
+        AppSpacing.xs,
+        AppSpacing.xs,
+        AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.postmanOrangeSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.postmanOrangeDark,
+            size: 20,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
       ),
     );
   }

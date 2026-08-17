@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/auth_flow.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 
 class PelekaProApp extends StatelessWidget {
-  const PelekaProApp({super.key, this.authRepository});
+  const PelekaProApp({super.key, this.authRepository, this.deliveryRepository});
 
   final AuthRepository? authRepository;
+  final DeliveryRepository? deliveryRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -14,7 +16,10 @@ class PelekaProApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'PelekaPro',
       theme: AppTheme.light(),
-      home: AuthFlow(repository: authRepository),
+      home: AuthFlow(
+        repository: authRepository,
+        deliveryRepository: deliveryRepository,
+      ),
     );
   }
 }
