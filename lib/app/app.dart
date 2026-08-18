@@ -3,12 +3,19 @@ import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/auth_flow.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class PelekaProApp extends StatelessWidget {
-  const PelekaProApp({super.key, this.authRepository, this.deliveryRepository});
+  const PelekaProApp({
+    super.key,
+    this.authRepository,
+    this.deliveryRepository,
+    this.deviceLocationSource,
+  });
 
   final AuthRepository? authRepository;
   final DeliveryRepository? deliveryRepository;
+  final DeviceLocationSource? deviceLocationSource;
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +26,7 @@ class PelekaProApp extends StatelessWidget {
       home: AuthFlow(
         repository: authRepository,
         deliveryRepository: deliveryRepository,
+        deviceLocationSource: deviceLocationSource,
       ),
     );
   }

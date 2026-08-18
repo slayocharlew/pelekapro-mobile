@@ -2,9 +2,12 @@ import 'package:pelekapro_mobile/core/network/api_client.dart';
 import 'package:pelekapro_mobile/core/network/api_exception.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/models/driver_delivery_details_mapper.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/models/driver_delivery_mapper.dart';
+import 'package:pelekapro_mobile/features/deliveries/data/models/recorded_delivery_location_mapper.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 
 class DeliveryRemoteDataSource {
   const DeliveryRemoteDataSource(this._apiClient);
@@ -84,6 +87,29 @@ class DeliveryRemoteDataSource {
         throw const FormatException('Unexpected started delivery.');
       }
       return delivery;
+    } on FormatException {
+      throw ApiException.invalidResponse();
+    }
+  }
+
+  Future<RecordedDeliveryLocation> submitLocation(
+    int deliveryId,
+    DeliveryLocationSample sample,
+    String accessToken,
+  ) async {
+    final payload = await _apiClient.postJson(
+      '/api/driver/deliveries/$deliveryId/locations',
+      bearerToken: accessToken,
+      body: sample.toJson(),
+    );
+    final data = payload['data'];
+
+    if (payload['success'] != true || data is! Map<String, dynamic>) {
+      throw ApiException.invalidResponse();
+    }
+
+    try {
+      return RecordedDeliveryLocationMapper.fromJson(data);
     } on FormatException {
       throw ApiException.invalidResponse();
     }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
@@ -11,6 +12,9 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_st
 import 'package:pelekapro_mobile/features/deliveries/presentation/mark_delivered_screen.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/report_issue_screen.dart';
+import 'package:pelekapro_mobile/features/tracking/data/geolocator_device_location_source.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
+import 'package:pelekapro_mobile/features/tracking/presentation/foreground_location_controller.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
 
@@ -22,6 +26,7 @@ class ActiveNavigationScreen extends StatefulWidget {
     required this.onSessionExpired,
     required this.onReturnToDeliveries,
     this.initialDetails,
+    this.deviceLocationSource,
     super.key,
   });
 
@@ -31,35 +36,79 @@ class ActiveNavigationScreen extends StatefulWidget {
   final VoidCallback onSessionExpired;
   final VoidCallback onReturnToDeliveries;
   final DriverDeliveryDetails? initialDetails;
+  final DeviceLocationSource? deviceLocationSource;
 
   @override
   State<ActiveNavigationScreen> createState() => _ActiveNavigationScreenState();
 }
 
-class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
+class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
+    with WidgetsBindingObserver {
   late final DeliveryDetailsController _detailsController;
+  late final ForegroundLocationController _locationController;
   var _isMuted = false;
+  var _isForeground = true;
+  var _isReconciling = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _isForeground = switch (WidgetsBinding.instance.lifecycleState) {
+      AppLifecycleState.paused ||
+      AppLifecycleState.detached ||
+      AppLifecycleState.hidden => false,
+      _ => true,
+    };
     _detailsController = DeliveryDetailsController(
       widget.repository,
       onUnauthorized: widget.onSessionExpired,
       initialDetails: widget.initialDetails,
     );
+    _locationController = ForegroundLocationController(
+      repository: widget.repository,
+      source:
+          widget.deviceLocationSource ?? const GeolocatorDeviceLocationSource(),
+      deliveryId: widget.deliveryId,
+      onUnauthorized: widget.onSessionExpired,
+      onTrackingRejected: _refreshAfterTrackingRejection,
+      onConnectionRestored: _reconcileAndResume,
+    );
     if (widget.initialDetails == null) {
       unawaited(_loadDetails());
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_syncTrackingWithDetails());
+        }
+      });
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _locationController.dispose();
     _detailsController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadDetails() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _isForeground = true;
+        unawaited(_reconcileAndResume());
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _isForeground = false;
+        unawaited(_locationController.pause());
+    }
+  }
+
+  Future<void> _loadDetails({bool syncTracking = true}) async {
     await _detailsController.load(widget.deliveryId);
     if (!mounted) {
       return;
@@ -68,11 +117,62 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     if (_detailsController.status == DeliveryDetailsStatus.ready &&
         details != null) {
       widget.store.replaceOneFromServer(details.delivery);
+      if (syncTracking) {
+        await _syncTrackingWithDetails();
+      }
     }
   }
 
-  void _openDelivered(DeliveryUiModel delivery) {
-    Navigator.of(context).push(
+  Future<void> _syncTrackingWithDetails() async {
+    if (!mounted || !_isForeground) {
+      return;
+    }
+    final delivery = _detailsController.details?.delivery;
+    final canTrack =
+        delivery != null &&
+        delivery.status.isActive &&
+        delivery.timestamps.startedAt != null;
+
+    if (canTrack) {
+      await _locationController.start();
+    } else {
+      await _locationController.pause();
+    }
+  }
+
+  Future<void> _reconcileAndResume() async {
+    if (!mounted || !_isForeground || _isReconciling) {
+      return;
+    }
+    _isReconciling = true;
+    try {
+      await _locationController.pause();
+      await _loadDetails(syncTracking: false);
+      if (mounted) {
+        await _syncTrackingWithDetails();
+      }
+    } finally {
+      _isReconciling = false;
+    }
+  }
+
+  Future<void> _refreshAfterTrackingRejection() async {
+    await _loadDetails(syncTracking: false);
+    if (!mounted) {
+      return;
+    }
+    final status = _detailsController.details?.delivery.status;
+    if (status != null && status.isDone) {
+      widget.onReturnToDeliveries();
+    }
+  }
+
+  Future<void> _openDelivered(DeliveryUiModel delivery) async {
+    unawaited(_locationController.pause());
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MarkDeliveredScreen(
           deliveryId: delivery.id,
@@ -81,14 +181,21 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
         ),
       ),
     );
+    if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
+      await _reconcileAndResume();
+    }
   }
 
-  void _openIssue(DeliveryUiModel delivery) {
+  Future<void> _openIssue(DeliveryUiModel delivery) async {
     final details = _detailsController.details;
     if (details == null) {
       return;
     }
-    Navigator.of(context).push(
+    unawaited(_locationController.pause());
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReportIssueScreen(
           deliveryId: delivery.id,
@@ -98,12 +205,43 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
         ),
       ),
     );
+    if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
+      await _reconcileAndResume();
+    }
+  }
+
+  Future<void> _openLocationSettings() async {
+    final opened = await _locationController.openLocationSettings();
+    if (mounted && !opened) {
+      _showSettingsError();
+    }
+  }
+
+  Future<void> _openAppSettings() async {
+    final opened = await _locationController.openAppSettings();
+    if (mounted && !opened) {
+      _showSettingsError();
+    }
+  }
+
+  void _showSettingsError() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Settings could not be opened. Try again.'),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_detailsController, widget.store]),
+      animation: Listenable.merge([
+        _detailsController,
+        _locationController,
+        widget.store,
+      ]),
       builder: (context, _) {
         final delivery = widget.store.deliveryById(widget.deliveryId);
         return Scaffold(
@@ -113,6 +251,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
               Positioned.fill(
                 child: _NavigationMap(
                   destination: delivery.dropoffArea.split(',').first,
+                  heading: _locationController.heading,
                 ),
               ),
               SafeArea(
@@ -173,7 +312,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                 child: const _MapAttribution(),
               ),
               DraggableScrollableSheet(
-                initialChildSize: 0.44,
+                initialChildSize: 0.48,
                 minChildSize: 0.38,
                 maxChildSize: 0.72,
                 snap: true,
@@ -183,12 +322,16 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                     scrollController: scrollController,
                     detailsStatus: _detailsController.status,
                     detailsError: _detailsController.errorMessage,
+                    locationController: _locationController,
                     failureReasonsAvailable:
                         _detailsController.details?.failureReasons.isNotEmpty ??
                         false,
                     onRetryDetails: _loadDetails,
-                    onDelivered: () => _openDelivered(delivery),
-                    onIssue: () => _openIssue(delivery),
+                    onRetryLocation: _reconcileAndResume,
+                    onOpenAppSettings: _openAppSettings,
+                    onOpenLocationSettings: _openLocationSettings,
+                    onDelivered: () => unawaited(_openDelivered(delivery)),
+                    onIssue: () => unawaited(_openIssue(delivery)),
                   );
                 },
               ),
@@ -297,9 +440,10 @@ class _TurnInstruction extends StatelessWidget {
 }
 
 class _NavigationMap extends StatelessWidget {
-  const _NavigationMap({required this.destination});
+  const _NavigationMap({required this.destination, required this.heading});
 
   final String destination;
+  final double? heading;
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +490,10 @@ class _NavigationMap extends StatelessWidget {
               Positioned(
                 left: width * 0.47,
                 top: height * 0.43,
-                child: const MotorcycleMarker(),
+                child: Transform.rotate(
+                  angle: (heading ?? 0) * math.pi / 180,
+                  child: const MotorcycleMarker(),
+                ),
               ),
             ],
           );
@@ -653,8 +800,12 @@ class _DeliveryNavigationSheet extends StatelessWidget {
     required this.scrollController,
     required this.detailsStatus,
     required this.detailsError,
+    required this.locationController,
     required this.failureReasonsAvailable,
     required this.onRetryDetails,
+    required this.onRetryLocation,
+    required this.onOpenAppSettings,
+    required this.onOpenLocationSettings,
     required this.onDelivered,
     required this.onIssue,
   });
@@ -663,8 +814,12 @@ class _DeliveryNavigationSheet extends StatelessWidget {
   final ScrollController scrollController;
   final DeliveryDetailsStatus detailsStatus;
   final String? detailsError;
+  final ForegroundLocationController locationController;
   final bool failureReasonsAvailable;
   final VoidCallback onRetryDetails;
+  final VoidCallback onRetryLocation;
+  final VoidCallback onOpenAppSettings;
+  final VoidCallback onOpenLocationSettings;
   final VoidCallback onDelivered;
   final VoidCallback onIssue;
 
@@ -740,7 +895,18 @@ class _DeliveryNavigationSheet extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           _SheetMetric(
             label: 'Last update',
-            value: formatDeliveryTime(context, delivery.lastUpdatedAt),
+            value: formatDeliveryTime(
+              context,
+              locationController.lastRecordedLocation?.recordedAt ??
+                  delivery.lastUpdatedAt,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _LocationTrackingBanner(
+            controller: locationController,
+            onRetry: onRetryLocation,
+            onOpenAppSettings: onOpenAppSettings,
+            onOpenLocationSettings: onOpenLocationSettings,
           ),
           const SizedBox(height: AppSpacing.md),
           const _DeliveryProgress(),
@@ -767,11 +933,14 @@ class _DeliveryNavigationSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
           ],
           _NavigationActions(
-            onDelivered: detailsStatus == DeliveryDetailsStatus.ready
+            onDelivered:
+                detailsStatus == DeliveryDetailsStatus.ready &&
+                    delivery.status.isActive
                 ? onDelivered
                 : null,
             onIssue:
                 detailsStatus == DeliveryDetailsStatus.ready &&
+                    delivery.status.isActive &&
                     failureReasonsAvailable
                 ? onIssue
                 : null,
@@ -782,6 +951,181 @@ class _DeliveryNavigationSheet extends StatelessWidget {
   }
 
   static String _shortArea(String value) => value.split(',').first;
+}
+
+class _LocationTrackingBanner extends StatelessWidget {
+  const _LocationTrackingBanner({
+    required this.controller,
+    required this.onRetry,
+    required this.onOpenAppSettings,
+    required this.onOpenLocationSettings,
+  });
+
+  final ForegroundLocationController controller;
+  final VoidCallback onRetry;
+  final VoidCallback onOpenAppSettings;
+  final VoidCallback onOpenLocationSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final presentation = _presentation();
+    final isWorking =
+        controller.status == ForegroundLocationStatus.requestingPermission ||
+        controller.status == ForegroundLocationStatus.syncing;
+
+    return Semantics(
+      liveRegion: true,
+      label: presentation.label,
+      child: Container(
+        key: ValueKey('location-status-${controller.status.name}'),
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: presentation.background,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            if (isWorking)
+              const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(presentation.icon, color: presentation.color, size: 20),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              child: Text(
+                presentation.label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: presentation.color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            if (presentation.action case final action?)
+              TextButton(
+                key: const ValueKey('location-status-action'),
+                onPressed: action,
+                child: Text(presentation.actionLabel!),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  _LocationStatusPresentation _presentation() {
+    return switch (controller.status) {
+      ForegroundLocationStatus.requestingPermission =>
+        const _LocationStatusPresentation(
+          label: 'Checking location access',
+          icon: Icons.location_searching_rounded,
+          color: AppColors.info,
+          background: AppColors.infoSoft,
+        ),
+      ForegroundLocationStatus.waitingForFix =>
+        const _LocationStatusPresentation(
+          label: 'Waiting for GPS signal',
+          icon: Icons.location_searching_rounded,
+          color: AppColors.info,
+          background: AppColors.infoSoft,
+        ),
+      ForegroundLocationStatus.syncing => const _LocationStatusPresentation(
+        label: 'Updating live location',
+        icon: Icons.my_location_rounded,
+        color: AppColors.success,
+        background: AppColors.successSoft,
+      ),
+      ForegroundLocationStatus.tracking => const _LocationStatusPresentation(
+        label: 'Live location on',
+        icon: Icons.my_location_rounded,
+        color: AppColors.success,
+        background: AppColors.successSoft,
+      ),
+      ForegroundLocationStatus.serviceDisabled => _LocationStatusPresentation(
+        label: 'Turn on device location',
+        icon: Icons.location_disabled_outlined,
+        color: AppColors.postmanOrangeDark,
+        background: AppColors.postmanOrangeSoft,
+        actionLabel: 'Turn on',
+        action: onOpenLocationSettings,
+      ),
+      ForegroundLocationStatus.permissionDenied => _LocationStatusPresentation(
+        label: 'Location permission is needed',
+        icon: Icons.location_disabled_outlined,
+        color: AppColors.postmanOrangeDark,
+        background: AppColors.postmanOrangeSoft,
+        actionLabel: 'Allow',
+        action: onRetry,
+      ),
+      ForegroundLocationStatus.permissionDeniedForever =>
+        _LocationStatusPresentation(
+          label: 'Allow location in Settings',
+          icon: Icons.location_disabled_outlined,
+          color: AppColors.postmanOrangeDark,
+          background: AppColors.postmanOrangeSoft,
+          actionLabel: 'Settings',
+          action: onOpenAppSettings,
+        ),
+      ForegroundLocationStatus.throttled => _LocationStatusPresentation(
+        label: controller.message ?? 'Location sync paused briefly',
+        icon: Icons.schedule_rounded,
+        color: AppColors.mutedInk,
+        background: AppColors.whiteSmoke,
+      ),
+      ForegroundLocationStatus.temporarilyUnavailable =>
+        _LocationStatusPresentation(
+          label: controller.message ?? 'Location sync interrupted',
+          icon: Icons.sync_problem_rounded,
+          color: AppColors.postmanOrangeDark,
+          background: AppColors.postmanOrangeSoft,
+          actionLabel: 'Retry',
+          action: onRetry,
+        ),
+      ForegroundLocationStatus.trackingRejected => _LocationStatusPresentation(
+        label: controller.message ?? 'Live tracking is no longer active',
+        icon: Icons.info_outline_rounded,
+        color: AppColors.mutedInk,
+        background: AppColors.whiteSmoke,
+        actionLabel: 'Refresh',
+        action: onRetry,
+      ),
+      ForegroundLocationStatus.idle ||
+      ForegroundLocationStatus.paused => _LocationStatusPresentation(
+        label: 'Live location paused',
+        icon: Icons.pause_circle_outline_rounded,
+        color: AppColors.mutedInk,
+        background: AppColors.whiteSmoke,
+        actionLabel: 'Retry',
+        action: onRetry,
+      ),
+    };
+  }
+}
+
+class _LocationStatusPresentation {
+  const _LocationStatusPresentation({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.background,
+    this.actionLabel,
+    this.action,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final Color background;
+  final String? actionLabel;
+  final VoidCallback? action;
 }
 
 class _InlineDetailsError extends StatelessWidget {

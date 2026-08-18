@@ -15,6 +15,7 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/start_delivery
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class DeliveryDetailsScreen extends StatefulWidget {
   const DeliveryDetailsScreen({
@@ -23,6 +24,7 @@ class DeliveryDetailsScreen extends StatefulWidget {
     required this.repository,
     required this.onSessionExpired,
     required this.onReturnToDeliveries,
+    this.deviceLocationSource,
     super.key,
   });
 
@@ -31,6 +33,7 @@ class DeliveryDetailsScreen extends StatefulWidget {
   final DeliveryRepository repository;
   final VoidCallback onSessionExpired;
   final VoidCallback onReturnToDeliveries;
+  final DeviceLocationSource? deviceLocationSource;
 
   @override
   State<DeliveryDetailsScreen> createState() => _DeliveryDetailsScreenState();
@@ -85,6 +88,7 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
           initialDetails: details,
           onSessionExpired: widget.onSessionExpired,
           onReturnToDeliveries: widget.onReturnToDeliveries,
+          deviceLocationSource: widget.deviceLocationSource,
         ),
       ),
     );

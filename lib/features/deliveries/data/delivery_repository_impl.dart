@@ -2,9 +2,11 @@ import 'package:pelekapro_mobile/core/network/api_exception.dart';
 import 'package:pelekapro_mobile/core/storage/token_storage.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 
 class DeliveryRepositoryImpl implements DeliveryRepository {
   DeliveryRepositoryImpl({
@@ -38,6 +40,19 @@ class DeliveryRepositoryImpl implements DeliveryRepository {
 
     return _withAccessToken(
       (accessToken) => remoteDataSource.startDelivery(deliveryId, accessToken),
+    );
+  }
+
+  @override
+  Future<RecordedDeliveryLocation> submitLocation(
+    int deliveryId,
+    DeliveryLocationSample sample,
+  ) {
+    _validateDeliveryId(deliveryId);
+
+    return _withAccessToken(
+      (accessToken) =>
+          remoteDataSource.submitLocation(deliveryId, sample, accessToken),
     );
   }
 

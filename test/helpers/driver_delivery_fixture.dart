@@ -1,6 +1,7 @@
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_customer.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure_reason.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_item.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_payment.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_requirements.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
@@ -8,6 +9,45 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_stop.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_timestamps.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
+
+DeliveryLocationSample deliveryLocationSampleFixture({
+  double latitude = -6.7924,
+  double longitude = 39.2083,
+  double? accuracy = 8.5,
+  double? speed = 6.2,
+  double? heading = 135,
+  DateTime? recordedAt,
+}) {
+  return DeliveryLocationSample(
+    latitude: latitude,
+    longitude: longitude,
+    accuracy: accuracy,
+    speed: speed,
+    heading: heading,
+    recordedAt: recordedAt ?? DateTime.utc(2026, 8, 17, 8, 15, 30),
+  );
+}
+
+RecordedDeliveryLocation recordedDeliveryLocationFixture({
+  double latitude = -6.7924,
+  double longitude = 39.2083,
+  double? accuracy = 8.5,
+  double? speed = 6.2,
+  double? heading = 135,
+  int? batteryLevel,
+  DateTime? recordedAt,
+}) {
+  return RecordedDeliveryLocation(
+    latitude: latitude,
+    longitude: longitude,
+    accuracy: accuracy,
+    speed: speed,
+    heading: heading,
+    batteryLevel: batteryLevel,
+    recordedAt: recordedAt ?? DateTime.utc(2026, 8, 17, 8, 15, 30),
+  );
+}
 
 DriverDelivery driverDeliveryFixture({
   int id = 101,

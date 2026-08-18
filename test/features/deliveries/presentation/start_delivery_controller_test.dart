@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/start_delivery_controller.dart';
 
 import '../../../helpers/driver_delivery_fixture.dart';
@@ -109,6 +111,12 @@ class _FakeRepository implements DeliveryRepository {
     }
     return driverDeliveryFixture(status: DeliveryStatus.onTheWay);
   }
+
+  @override
+  Future<RecordedDeliveryLocation> submitLocation(
+    int deliveryId,
+    DeliveryLocationSample sample,
+  ) async => recordedDeliveryLocationFixture();
 
   @override
   void close() {}

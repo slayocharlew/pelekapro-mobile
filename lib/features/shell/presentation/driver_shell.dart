@@ -14,6 +14,7 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_st
 import 'package:pelekapro_mobile/features/deliveries/presentation/deliveries_page.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_screen.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class DriverShell extends StatefulWidget {
   const DriverShell({
@@ -23,6 +24,7 @@ class DriverShell extends StatefulWidget {
     required this.onRefreshAccount,
     required this.onSessionExpired,
     required this.onLoggedOut,
+    this.deviceLocationSource,
     super.key,
   });
 
@@ -32,6 +34,7 @@ class DriverShell extends StatefulWidget {
   final VoidCallback onRefreshAccount;
   final VoidCallback onSessionExpired;
   final VoidCallback onLoggedOut;
+  final DeviceLocationSource? deviceLocationSource;
 
   @override
   State<DriverShell> createState() => _DriverShellState();
@@ -116,6 +119,7 @@ class _DriverShellState extends State<DriverShell> {
           repository: widget.deliveryRepository,
           onSessionExpired: _handleSessionExpired,
           onReturnToDeliveries: _returnToDeliveries,
+          deviceLocationSource: widget.deviceLocationSource,
         ),
       ),
     );
@@ -130,6 +134,7 @@ class _DriverShellState extends State<DriverShell> {
           repository: widget.deliveryRepository,
           onSessionExpired: _handleSessionExpired,
           onReturnToDeliveries: _returnToDeliveries,
+          deviceLocationSource: widget.deviceLocationSource,
         ),
       ),
     );

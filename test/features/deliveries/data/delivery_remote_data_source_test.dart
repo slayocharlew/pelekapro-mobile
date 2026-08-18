@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:pelekapro_mobile/core/network/api_client.dart';
 import 'package:pelekapro_mobile/core/network/api_exception.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 
 void main() {
@@ -193,6 +194,110 @@ void main() {
         dataSource.startDelivery(101, 'token'),
         throwsA(isA<ApiException>()),
       );
+    });
+
+    test('posts only the documented GPS fields and parses 201', () async {
+      late http.Request capturedRequest;
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient((request) async {
+            capturedRequest = request;
+            return http.Response(
+              jsonEncode({
+                'success': true,
+                'message': 'Location recorded successfully',
+                'data': {
+                  'latitude': '-6.7924000',
+                  'longitude': '39.2083000',
+                  'accuracy': '8.50',
+                  'speed': '6.20',
+                  'heading': '135.00',
+                  'battery_level': null,
+                  'recorded_at': '2026-08-17T08:15:30.000000Z',
+                },
+              }),
+              201,
+            );
+          }),
+        ),
+      );
+      final sample = DeliveryLocationSample(
+        latitude: -6.7924,
+        longitude: 39.2083,
+        accuracy: 8.5,
+        speed: 6.2,
+        heading: 135,
+        recordedAt: DateTime.utc(2026, 8, 17, 8, 15, 30),
+      );
+
+      final recorded = await dataSource.submitLocation(
+        101,
+        sample,
+        'stored-driver-token',
+      );
+
+      expect(capturedRequest.method, 'POST');
+      expect(capturedRequest.url.path, '/api/driver/deliveries/101/locations');
+      expect(
+        capturedRequest.headers['authorization'],
+        'Bearer stored-driver-token',
+      );
+      expect(jsonDecode(capturedRequest.body), {
+        'latitude': -6.7924,
+        'longitude': 39.2083,
+        'accuracy': 8.5,
+        'speed': 6.2,
+        'heading': 135.0,
+        'recorded_at': '2026-08-17T08:15:30.000Z',
+      });
+      expect(capturedRequest.body, isNot(contains('delivery_id')));
+      expect(capturedRequest.body, isNot(contains('driver_id')));
+      expect(capturedRequest.body, isNot(contains('tracking_session_id')));
+      expect(capturedRequest.body, isNot(contains('battery_level')));
+      expect(recorded.latitude, -6.7924);
+      expect(recorded.heading, 135);
+      expect(recorded.batteryLevel, isNull);
+      expect(recorded.recordedAt, DateTime.utc(2026, 8, 17, 8, 15, 30));
+    });
+
+    test('accepts the documented duplicate-location 200 response', () async {
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'success': true,
+                'message': 'Location already recorded',
+                'data': {
+                  'latitude': '-6.7924000',
+                  'longitude': '39.2083000',
+                  'accuracy': null,
+                  'speed': null,
+                  'heading': null,
+                  'battery_level': null,
+                  'recorded_at': '2026-08-17T08:15:30.000000Z',
+                },
+              }),
+              200,
+            ),
+          ),
+        ),
+      );
+
+      final recorded = await dataSource.submitLocation(
+        101,
+        DeliveryLocationSample(
+          latitude: -6.7924,
+          longitude: 39.2083,
+          recordedAt: DateTime.utc(2026, 8, 17, 8, 15, 30),
+        ),
+        'token',
+      );
+
+      expect(recorded.speed, isNull);
+      expect(recorded.heading, isNull);
     });
 
     test('rejects detail responses without valid failure reasons', () async {

@@ -4,9 +4,11 @@ import 'package:pelekapro_mobile/core/storage/token_storage.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_repository_impl.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 
 import '../../../helpers/driver_delivery_fixture.dart';
 
@@ -87,6 +89,68 @@ void main() {
       expect(remote.startedDeliveryId, 101);
       expect(remote.startCalls, 1);
       expect(storage.clearCount, 0);
+    });
+
+    test('uses the secure token to submit a location sample', () async {
+      final remote = _FakeDeliveryRemoteDataSource(
+        recordedLocation: recordedDeliveryLocationFixture(),
+      );
+      final storage = _MemoryTokenStorage(
+        token: const StoredAuthToken(
+          accessToken: 'stored-location-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = DeliveryRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        now: _now,
+      );
+      final sample = deliveryLocationSampleFixture();
+
+      final recorded = await repository.submitLocation(101, sample);
+
+      expect(recorded.latitude, sample.latitude);
+      expect(remote.locationCalls, 1);
+      expect(remote.locationDeliveryId, 101);
+      expect(remote.locationSample, same(sample));
+      expect(remote.locationAccessToken, 'stored-location-token');
+      expect(storage.clearCount, 0);
+    });
+
+    test('clears a token rejected during location submission', () async {
+      final remote = _FakeDeliveryRemoteDataSource(
+        locationError: ApiException(
+          message: 'Unauthenticated.',
+          statusCode: 401,
+        ),
+      );
+      final storage = _MemoryTokenStorage(
+        token: const StoredAuthToken(
+          accessToken: 'revoked-location-token',
+          tokenType: 'Bearer',
+        ),
+      );
+      final repository = DeliveryRepositoryImpl(
+        remoteDataSource: remote,
+        tokenStorage: storage,
+        now: _now,
+      );
+
+      await expectLater(
+        repository.submitLocation(101, deliveryLocationSampleFixture()),
+        throwsA(
+          isA<DeliveryFailure>().having(
+            (failure) => failure.statusCode,
+            'statusCode',
+            401,
+          ),
+        ),
+      );
+
+      expect(storage.token, isNull);
+      expect(storage.clearCount, 1);
+      expect(remote.locationCalls, 1);
     });
 
     test(
@@ -288,6 +352,8 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
     this.error,
     this.detailError,
     this.startError,
+    this.recordedLocation,
+    this.locationError,
   });
 
   final List<DriverDelivery> deliveries;
@@ -296,14 +362,20 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
   final ApiException? error;
   final ApiException? detailError;
   final ApiException? startError;
+  final RecordedDeliveryLocation? recordedLocation;
+  final ApiException? locationError;
   String? accessToken;
   String? detailAccessToken;
   String? startAccessToken;
+  String? locationAccessToken;
   int? deliveryId;
   int? startedDeliveryId;
+  int? locationDeliveryId;
+  DeliveryLocationSample? locationSample;
   int calls = 0;
   int detailCalls = 0;
   int startCalls = 0;
+  int locationCalls = 0;
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries(String token) async {
@@ -339,6 +411,22 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
     }
     return startedDelivery ??
         driverDeliveryFixture(id: id, status: DeliveryStatus.onTheWay);
+  }
+
+  @override
+  Future<RecordedDeliveryLocation> submitLocation(
+    int id,
+    DeliveryLocationSample sample,
+    String token,
+  ) async {
+    locationCalls += 1;
+    locationDeliveryId = id;
+    locationSample = sample;
+    locationAccessToken = token;
+    if (locationError case final apiError?) {
+      throw apiError;
+    }
+    return recordedLocation ?? recordedDeliveryLocationFixture();
   }
 
   @override

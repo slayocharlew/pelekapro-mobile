@@ -11,12 +11,15 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
 import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 
 import 'helpers/driver_delivery_fixture.dart';
@@ -401,9 +404,7 @@ void main() {
   ) async {
     final repository = _authenticatedRepository();
     final deliveryRepository = _FakeDeliveryRepository(
-      startedDelivery: driverDeliveryFixture(
-        status: DeliveryStatus.onTheWay,
-      ),
+      startedDelivery: driverDeliveryFixture(status: DeliveryStatus.onTheWay),
     );
     await _pumpApp(
       tester,
@@ -427,6 +428,88 @@ void main() {
     expect(deliveryRepository.detailFetchCalls, 1);
     expect(deliveryRepository.startCalls, 1);
     expect(deliveryRepository.lastStartedDeliveryId, 101);
+  });
+
+  testWidgets(
+    'active navigation submits foreground GPS and pauses when covered',
+    (tester) async {
+      final source = _ControlledDeviceLocationSource();
+      addTearDown(source.close);
+      final deliveryRepository = _FakeDeliveryRepository();
+      await _pumpApp(
+        tester,
+        repository: _authenticatedRepository(),
+        deliveryRepository: deliveryRepository,
+        deviceLocationSource: source,
+      );
+      await tester.tap(find.byKey(const ValueKey('view-delivery-101')));
+      await tester.pumpAndSettle();
+      expect(source.watchCalls, 0);
+      expect(deliveryRepository.locationCalls, 0);
+
+      await tester.tap(find.byKey(const ValueKey('start-delivery-api')));
+      await tester.pumpAndSettle();
+
+      expect(source.watchCalls, 1);
+      source.emit(deliveryLocationSampleFixture());
+      await tester.pump();
+      await tester.pump();
+
+      expect(deliveryRepository.locationCalls, 1);
+      expect(deliveryRepository.lastLocationDeliveryId, 101);
+      expect(find.text('Live location on'), findsOneWidget);
+
+      final markDelivered = find.byKey(const ValueKey('mark-delivered-local'));
+      await tester.scrollUntilVisible(
+        markDelivered,
+        120,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('active-navigation-sheet-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final deliveredButton = tester.widget<FilledButton>(markDelivered);
+      expect(deliveredButton.onPressed, isNotNull);
+      deliveredButton.onPressed!();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('mark-delivered-screen')),
+        findsOneWidget,
+      );
+      expect(source.hasListener, isFalse);
+
+      source.emit(deliveryLocationSampleFixture());
+      await tester.pump();
+      expect(deliveryRepository.locationCalls, 1);
+    },
+  );
+
+  testWidgets('a location 401 ends the authenticated session', (tester) async {
+    final source = _ControlledDeviceLocationSource();
+    addTearDown(source.close);
+    final deliveryRepository = _FakeDeliveryRepository(
+      locationFailure: const DeliveryFailure(
+        message: 'Your session has expired. Sign in again.',
+        statusCode: 401,
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+      deviceLocationSource: source,
+    );
+    await _openFirstNavigation(tester);
+
+    source.emit(deliveryLocationSampleFixture());
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(deliveryRepository.locationCalls, 1);
+    expect(find.byKey(const ValueKey('login-screen')), findsOneWidget);
+    expect(source.hasListener, isFalse);
   });
 
   testWidgets('Start delivery disables duplicate submissions while loading', (
@@ -760,6 +843,7 @@ void main() {
         PelekaProApp(
           authRepository: _authenticatedRepository(),
           deliveryRepository: _FakeDeliveryRepository(),
+          deviceLocationSource: _EmptyDeviceLocationSource(),
         ),
       );
       await tester.pumpAndSettle();
@@ -788,6 +872,7 @@ void main() {
       PelekaProApp(
         authRepository: _authenticatedRepository(),
         deliveryRepository: _FakeDeliveryRepository(),
+        deviceLocationSource: _EmptyDeviceLocationSource(),
       ),
     );
     await tester.pumpAndSettle();
@@ -923,12 +1008,15 @@ Future<void> _pumpApp(
   WidgetTester tester, {
   AuthRepository? repository,
   DeliveryRepository? deliveryRepository,
+  DeviceLocationSource? deviceLocationSource,
 }) async {
   _usePhoneSurface(tester);
   await tester.pumpWidget(
     PelekaProApp(
       authRepository: repository ?? _FakeAuthRepository(),
       deliveryRepository: deliveryRepository ?? _FakeDeliveryRepository(),
+      deviceLocationSource:
+          deviceLocationSource ?? _EmptyDeviceLocationSource(),
     ),
   );
   await tester.pumpAndSettle();
@@ -1021,6 +1109,7 @@ class _FakeDeliveryRepository implements DeliveryRepository {
     this.startedDelivery,
     this.startFailure,
     this.startCompleter,
+    this.locationFailure,
   }) : deliveries = deliveries ?? assignedDeliveriesFixture();
 
   final List<DriverDelivery> deliveries;
@@ -1033,11 +1122,16 @@ class _FakeDeliveryRepository implements DeliveryRepository {
   final DriverDelivery? startedDelivery;
   DeliveryFailure? startFailure;
   final Completer<DriverDelivery>? startCompleter;
+  DeliveryFailure? locationFailure;
   int fetchCalls = 0;
   int detailFetchCalls = 0;
   int startCalls = 0;
+  int locationCalls = 0;
   int? lastDetailId;
   int? lastStartedDeliveryId;
+  int? lastLocationDeliveryId;
+  DeliveryLocationSample? lastLocationSample;
+  final Map<int, DriverDelivery> _serverDeliveryOverrides = {};
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries() async {
@@ -1072,7 +1166,9 @@ class _FakeDeliveryRepository implements DeliveryRepository {
       return configuredDetails;
     }
     return driverDeliveryDetailsFixture(
-      delivery: deliveries.firstWhere((delivery) => delivery.id == deliveryId),
+      delivery:
+          _serverDeliveryOverrides[deliveryId] ??
+          deliveries.firstWhere((delivery) => delivery.id == deliveryId),
     );
   }
 
@@ -1086,17 +1182,81 @@ class _FakeDeliveryRepository implements DeliveryRepository {
     if (startCompleter case final pending?) {
       return pending.future;
     }
-    if (startedDelivery case final configuredDelivery?) {
-      return configuredDelivery;
+    final result =
+        startedDelivery ??
+        driverDeliveryFixture(id: deliveryId, status: DeliveryStatus.onTheWay);
+    _serverDeliveryOverrides[deliveryId] = result;
+    return result;
+  }
+
+  @override
+  Future<RecordedDeliveryLocation> submitLocation(
+    int deliveryId,
+    DeliveryLocationSample sample,
+  ) async {
+    locationCalls += 1;
+    lastLocationDeliveryId = deliveryId;
+    lastLocationSample = sample;
+    if (locationFailure case final failure?) {
+      throw failure;
     }
-    return driverDeliveryFixture(
-      id: deliveryId,
-      status: DeliveryStatus.onTheWay,
+    return recordedDeliveryLocationFixture(
+      latitude: sample.latitude,
+      longitude: sample.longitude,
+      accuracy: sample.accuracy,
+      speed: sample.speed,
+      heading: sample.heading,
+      recordedAt: sample.recordedAt,
     );
   }
 
   @override
   void close() {}
+}
+
+class _EmptyDeviceLocationSource implements DeviceLocationSource {
+  @override
+  Future<DeviceLocationAccess> ensureAccess() async {
+    return DeviceLocationAccess.granted;
+  }
+
+  @override
+  Future<bool> openAppSettings() async => true;
+
+  @override
+  Future<bool> openLocationSettings() async => true;
+
+  @override
+  Stream<DeliveryLocationSample> watch() => const Stream.empty();
+}
+
+class _ControlledDeviceLocationSource implements DeviceLocationSource {
+  final StreamController<DeliveryLocationSample> _controller =
+      StreamController<DeliveryLocationSample>.broadcast();
+  int watchCalls = 0;
+
+  bool get hasListener => _controller.hasListener;
+
+  void emit(DeliveryLocationSample sample) => _controller.add(sample);
+
+  Future<void> close() => _controller.close();
+
+  @override
+  Future<DeviceLocationAccess> ensureAccess() async {
+    return DeviceLocationAccess.granted;
+  }
+
+  @override
+  Future<bool> openAppSettings() async => true;
+
+  @override
+  Future<bool> openLocationSettings() async => true;
+
+  @override
+  Stream<DeliveryLocationSample> watch() {
+    watchCalls += 1;
+    return _controller.stream;
+  }
 }
 
 const _testDriver = AuthUser(

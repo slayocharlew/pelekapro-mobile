@@ -10,12 +10,19 @@ import 'package:pelekapro_mobile/features/auth/presentation/session_error_screen
 import 'package:pelekapro_mobile/features/deliveries/delivery_composition.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/shell/presentation/driver_shell.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class AuthFlow extends StatefulWidget {
-  const AuthFlow({super.key, this.repository, this.deliveryRepository});
+  const AuthFlow({
+    super.key,
+    this.repository,
+    this.deliveryRepository,
+    this.deviceLocationSource,
+  });
 
   final AuthRepository? repository;
   final DeliveryRepository? deliveryRepository;
+  final DeviceLocationSource? deviceLocationSource;
 
   @override
   State<AuthFlow> createState() => _AuthFlowState();
@@ -78,6 +85,7 @@ class _AuthFlowState extends State<AuthFlow> {
         onRefreshAccount: _sessionController.restore,
         onSessionExpired: _sessionController.showLogin,
         onLoggedOut: _sessionController.showLogin,
+        deviceLocationSource: widget.deviceLocationSource,
       ),
       SessionStatus.failure => SessionErrorScreen(
         message: _sessionController.errorMessage!,
