@@ -18,10 +18,10 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
-import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_coordinate.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
+import 'package:pelekapro_mobile/features/navigation/presentation/google_navigation_map.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
@@ -421,11 +421,11 @@ void main() {
       find.byKey(const ValueKey('active-navigation-screen')),
       findsOneWidget,
     );
-    expect(find.byType(MotorcycleMarker), findsNothing);
+    expect(find.byType(GoogleMapUnavailableState), findsOneWidget);
     expect(find.text('Finding your location'), findsOneWidget);
     expect(find.text('Turn right'), findsNothing);
     expect(find.text('Ali Hassan Mwinyi Rd'), findsNothing);
-    expect(find.textContaining('OpenStreetMap'), findsOneWidget);
+    expect(find.text('Google Maps unavailable'), findsOneWidget);
     expect(repository.restoreCalls, 1);
     expect(repository.loginCalls, 0);
     expect(repository.logoutCalls, 0);
@@ -460,7 +460,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(deliveryRepository.locationCalls, 1);
-      expect(find.byType(MotorcycleMarker), findsOneWidget);
+      expect(find.byType(GoogleMapUnavailableState), findsOneWidget);
       expect(deliveryRepository.lastLocationDeliveryId, 101);
       expect(find.text('Live location on'), findsOneWidget);
 
@@ -816,10 +816,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open-active-navigation')));
     await tester.pumpAndSettle();
-    expect(
-      find.bySemanticsLabel('Live OpenStreetMap navigation to Oysterbay'),
-      findsOneWidget,
-    );
+    expect(find.byType(GoogleMapUnavailableState), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('report-issue-local')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('report-issue-screen')), findsOneWidget);
@@ -950,7 +947,7 @@ void main() {
           authRepository: _authenticatedRepository(),
           deliveryRepository: _FakeDeliveryRepository(),
           deviceLocationSource: _EmptyDeviceLocationSource(),
-          loadMapTiles: false,
+          loadGoogleMap: false,
         ),
       );
       await tester.pumpAndSettle();
@@ -980,7 +977,7 @@ void main() {
         authRepository: _authenticatedRepository(),
         deliveryRepository: _FakeDeliveryRepository(),
         deviceLocationSource: _EmptyDeviceLocationSource(),
-        loadMapTiles: false,
+        loadGoogleMap: false,
       ),
     );
     await tester.pumpAndSettle();
@@ -1127,7 +1124,7 @@ Future<void> _pumpApp(
       deviceLocationSource:
           deviceLocationSource ?? _EmptyDeviceLocationSource(),
       navigationRouteService: navigationRouteService,
-      loadMapTiles: false,
+      loadGoogleMap: false,
     ),
   );
   await tester.pumpAndSettle();

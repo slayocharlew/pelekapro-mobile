@@ -130,7 +130,36 @@ Start Delivery consumes `POST /api/driver/deliveries/{delivery}/start` without a
 
 After Laravel starts a delivery, foreground GPS starts with Android permission and service checks. The app submits the documented location sample approximately every five seconds, follows the rider on the map, pauses when the app is covered, and reconciles Laravel state when connectivity or foreground activity returns.
 
-The navigation view uses the real `dropoff.latitude` and `dropoff.longitude` returned by Laravel. It never substitutes a customer name or written address for geographic coordinates. OpenStreetMap tiles provide the visible map, while an OSRM-compatible routing service supplies road geometry, distance, duration, and the next maneuver. If a drop-off pin, GPS fix, or routing response is unavailable, the app shows that limitation and does not draw a fabricated route.
+The navigation view uses the real `dropoff.latitude` and `dropoff.longitude` returned by Laravel. It never substitutes a customer name or written address for geographic coordinates. Google Maps SDK for Android provides only the visible map, while the independently configured OSRM-compatible routing service supplies road geometry, distance, duration, and the next maneuver. If a drop-off pin, GPS fix, map key, or routing response is unavailable, the app shows that limitation and does not draw a fabricated route.
+
+## Google Maps SDK for Android
+
+The Flutter map requires its own Android-restricted Google Maps key. It must not reuse the Laravel browser key or JavaScript Map ID. In Google Cloud, enable only **Maps SDK for Android**, create a separate key, and apply both restrictions:
+
+- Android application package `tz.co.pelekapro.mobile`
+- the SHA-1 fingerprint from the signing certificate used for that build
+
+Obtain the local debug fingerprint with Android Studio's bundled Java:
+
+```bash
+cd android
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew signingReport
+cd ..
+```
+
+The current development machine's debug SHA-1 is:
+
+```text
+88:FF:FF:24:B6:5C:68:02:75:1F:C7:69:9C:48:B9:FF:31:F2:C2:2E
+```
+
+Keep the real key only in the ignored `android/local.properties` file. Preserve its existing `sdk.dir` line and add:
+
+```properties
+MAPS_API_KEY=YOUR_ANDROID_RESTRICTED_MAPS_SDK_KEY
+```
+
+`android/local.properties.example` provides the safe placeholder. Gradle injects the value into `AndroidManifest.xml`; Dart never reads, prints, or stores the key. If the key is absent, the navigation screen renders a safe map-unavailable state. Release signing requires its own real certificate fingerprint and appropriately restricted key before distribution.
 
 Configure development routing separately from the PelekaPro API:
 
@@ -140,7 +169,7 @@ flutter run \
   --dart-define=ROUTING_BASE_URL=https://router.project-osrm.org
 ```
 
-`router.project-osrm.org` is a best-effort demo service suitable for development verification, not a production SLA. Configure a controlled OSRM deployment or supported provider for production. `MAP_TILE_URL` can override the default HTTPS OpenStreetMap tile template. The app identifies itself as `tz.co.pelekapro.mobile`, displays OpenStreetMap/OSRM attribution, and does not prefetch tiles.
+`router.project-osrm.org` is a best-effort demo service suitable for development verification, not a production SLA. Configure a controlled OSRM deployment or supported provider for production. The Google SDK remains a renderer only: the app does not add Google Places, Routes, Navigation, Geocoding, or Street View services. Device GPS samples continue to go exclusively to Laravel through `POST /api/driver/deliveries/{delivery}/locations`.
 
 Mark Delivered consumes `POST /api/driver/deliveries/{delivery}/deliver`, including optional photo proof and the actual collected amount when Laravel requires collection. The current backend contract has no delivery PIN field, so the mobile app neither requests nor submits one. Report Issue remains the next local-only outcome workflow:
 
@@ -194,7 +223,8 @@ Implemented:
 - Selected delivery and active failure reasons through `GET /api/driver/deliveries/{delivery}`
 - Start delivery through `POST /api/driver/deliveries/{delivery}/start`
 - Foreground device location through `POST /api/driver/deliveries/{delivery}/locations`
-- Real OpenStreetMap rendering with the rider and server-provided drop-off coordinates
+- Google Maps SDK for Android rendering with the rider and server-provided drop-off coordinates
+- Android-local, manifest-placeholder map-key injection with a safe missing-key state
 - Configurable OSRM road geometry, ETA, distance, and maneuver guidance
 - Delivery completion through `POST /api/driver/deliveries/{delivery}/deliver`
 - Optional JPEG/PNG/WebP proof capture and multipart upload
@@ -209,7 +239,7 @@ Next phases:
 
 1. Connect the failed-delivery API and optional failure proof
 2. Verify terminal GPS shutdown for every authoritative failed/cancelled response
-3. Deploy production-grade OSM-derived tiles and motorcycle-aware routing
+3. Deploy production-grade motorcycle-aware routing and release map credentials
 4. Connect authorized tracking history
 5. Consume logout-all when required
 6. Add Reverb integration where required

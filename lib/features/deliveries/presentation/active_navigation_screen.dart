@@ -1,12 +1,8 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
-import 'package:pelekapro_mobile/core/config/app_config.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
@@ -20,6 +16,7 @@ import 'package:pelekapro_mobile/features/navigation/domain/navigation_coordinat
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/navigation/navigation_composition.dart';
+import 'package:pelekapro_mobile/features/navigation/presentation/google_navigation_map.dart';
 import 'package:pelekapro_mobile/features/navigation/presentation/navigation_route_controller.dart';
 import 'package:pelekapro_mobile/features/tracking/data/geolocator_device_location_source.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
@@ -36,8 +33,7 @@ class ActiveNavigationScreen extends StatefulWidget {
     this.initialDetails,
     this.deviceLocationSource,
     this.navigationRouteService,
-    this.mapTileUrlTemplate,
-    this.loadMapTiles = true,
+    this.loadGoogleMap = true,
     super.key,
   });
 
@@ -49,8 +45,7 @@ class ActiveNavigationScreen extends StatefulWidget {
   final DriverDeliveryDetails? initialDetails;
   final DeviceLocationSource? deviceLocationSource;
   final NavigationRouteService? navigationRouteService;
-  final String? mapTileUrlTemplate;
-  final bool loadMapTiles;
+  final bool loadGoogleMap;
 
   @override
   State<ActiveNavigationScreen> createState() => _ActiveNavigationScreenState();
@@ -363,16 +358,13 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
           body: Stack(
             children: [
               Positioned.fill(
-                child: _NavigationMap(
+                child: GoogleNavigationMap(
                   destinationLabel: delivery.dropoffArea.split(',').first,
                   destination: destination,
                   currentLocation: currentLocation,
                   route: _routeController.route,
                   heading: _locationController.heading,
-                  tileUrlTemplate: widget.loadMapTiles
-                      ? widget.mapTileUrlTemplate ??
-                            AppConfig.mapTileUrlTemplate
-                      : null,
+                  loadGoogleMap: widget.loadGoogleMap,
                   followDriver: _followDriver,
                   followHeading: _followHeading,
                   recenterRequest: _recenterRequest,
@@ -427,14 +419,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                       onPressed: _recenter,
                     ),
                   ],
-                ),
-              ),
-              Positioned(
-                left: AppSpacing.sm,
-                bottom:
-                    MediaQuery.sizeOf(context).height * 0.48 + AppSpacing.xs,
-                child: _MapAttribution(
-                  routeAttributionVisible: _routeController.route != null,
                 ),
               ),
               DraggableScrollableSheet(
@@ -682,326 +666,6 @@ class _TurnInstruction extends StatelessWidget {
   }
 }
 
-class _NavigationMap extends StatefulWidget {
-  const _NavigationMap({
-    required this.destinationLabel,
-    required this.destination,
-    required this.currentLocation,
-    required this.route,
-    required this.heading,
-    required this.tileUrlTemplate,
-    required this.followDriver,
-    required this.followHeading,
-    required this.recenterRequest,
-    required this.onInteractionStarted,
-  });
-
-  final String destinationLabel;
-  final NavigationCoordinate? destination;
-  final NavigationCoordinate? currentLocation;
-  final NavigationRoute? route;
-  final double? heading;
-  final String? tileUrlTemplate;
-  final bool followDriver;
-  final bool followHeading;
-  final int recenterRequest;
-  final VoidCallback onInteractionStarted;
-
-  @override
-  State<_NavigationMap> createState() => _NavigationMapState();
-}
-
-class _NavigationMapState extends State<_NavigationMap> {
-  final _mapController = MapController();
-  var _isMapReady = false;
-  var _hasCenteredOnDriver = false;
-
-  @override
-  void didUpdateWidget(covariant _NavigationMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.followDriver &&
-        (oldWidget.currentLocation != widget.currentLocation ||
-            oldWidget.heading != widget.heading ||
-            oldWidget.followHeading != widget.followHeading ||
-            oldWidget.recenterRequest != widget.recenterRequest)) {
-      _scheduleFollow();
-    } else if (widget.currentLocation == null &&
-        oldWidget.destination != widget.destination) {
-      _scheduleDestination();
-    }
-  }
-
-  @override
-  void dispose() {
-    _mapController.dispose();
-    super.dispose();
-  }
-
-  void _scheduleFollow() {
-    WidgetsBinding.instance.addPostFrameCallback((_) => _followDriver());
-  }
-
-  void _scheduleDestination() {
-    WidgetsBinding.instance.addPostFrameCallback((_) => _showDestination());
-  }
-
-  void _followDriver() {
-    final location = widget.currentLocation;
-    if (!mounted || !_isMapReady || location == null) {
-      return;
-    }
-    final zoom = _hasCenteredOnDriver
-        ? _mapController.camera.zoom.clamp(15.5, 18.5)
-        : 17.0;
-    _hasCenteredOnDriver = true;
-    _mapController.moveAndRotate(
-      _latLng(location),
-      zoom,
-      widget.followHeading ? widget.heading ?? 0 : 0,
-      id: 'follow-driver',
-    );
-  }
-
-  void _showDestination() {
-    final destination = widget.destination;
-    if (!mounted || !_isMapReady || destination == null) {
-      return;
-    }
-    _mapController.move(_latLng(destination), 15.5, id: 'show-destination');
-  }
-
-  void _handleMapEvent(MapEvent event) {
-    if (switch (event.source) {
-      MapEventSource.dragStart ||
-      MapEventSource.doubleTap ||
-      MapEventSource.doubleTapHold ||
-      MapEventSource.multiFingerGestureStart ||
-      MapEventSource.scrollWheel ||
-      MapEventSource.cursorKeyboardRotation => true,
-      _ => false,
-    }) {
-      widget.onInteractionStarted();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final initial =
-        widget.currentLocation ??
-        widget.destination ??
-        const NavigationCoordinate(latitude: -6.7924, longitude: 39.2083);
-    final routePoints = widget.route?.geometry
-        .map(_latLng)
-        .toList(growable: false);
-    final markers = <Marker>[
-      if (widget.destination case final destination?)
-        Marker(
-          point: _latLng(destination),
-          width: 180,
-          height: 90,
-          alignment: Alignment.bottomCenter,
-          rotate: true,
-          child: _DestinationMarker(destination: widget.destinationLabel),
-        ),
-      if (widget.currentLocation case final currentLocation?)
-        Marker(
-          point: _latLng(currentLocation),
-          width: 48,
-          height: 62,
-          rotate: true,
-          child: Transform.rotate(
-            angle: widget.followHeading
-                ? 0
-                : (widget.heading ?? 0) * math.pi / 180,
-            child: const MotorcycleMarker(),
-          ),
-        ),
-    ];
-
-    return Semantics(
-      label: 'Live OpenStreetMap navigation to ${widget.destinationLabel}',
-      excludeSemantics: true,
-      child: ColoredBox(
-        color: const Color(0xFFE9ECE8),
-        child: FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: _latLng(initial),
-            initialZoom: widget.currentLocation != null ? 17 : 15.5,
-            initialRotation: widget.followHeading ? widget.heading ?? 0 : 0,
-            minZoom: 4,
-            maxZoom: 19,
-            backgroundColor: const Color(0xFFE9ECE8),
-            onMapReady: () {
-              _isMapReady = true;
-              if (widget.currentLocation != null && widget.followDriver) {
-                _scheduleFollow();
-              } else {
-                _scheduleDestination();
-              }
-            },
-            onMapEvent: _handleMapEvent,
-          ),
-          children: [
-            if (widget.tileUrlTemplate case final tileUrl?)
-              TileLayer(
-                urlTemplate: tileUrl,
-                userAgentPackageName: 'tz.co.pelekapro.mobile',
-                maxNativeZoom: 19,
-              ),
-            if (routePoints != null && routePoints.length >= 2)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: routePoints,
-                    color: AppColors.postmanOrange,
-                    borderColor: Colors.white,
-                    borderStrokeWidth: 3,
-                    strokeWidth: 7,
-                  ),
-                ],
-              ),
-            MarkerLayer(markers: markers),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static LatLng _latLng(NavigationCoordinate coordinate) {
-    return LatLng(coordinate.latitude, coordinate.longitude);
-  }
-}
-
-class MotorcycleMarker extends StatelessWidget {
-  const MotorcycleMarker({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Driver motorcycle position',
-      excludeSemantics: true,
-      child: Container(
-        width: 44,
-        height: 58,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.16),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: const CustomPaint(painter: _MotorcyclePainter()),
-      ),
-    );
-  }
-}
-
-class _MotorcyclePainter extends CustomPainter {
-  const _MotorcyclePainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final dark = Paint()..color = const Color(0xFF343638);
-    final orange = Paint()..color = AppColors.postmanOrange;
-
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(size.width / 2, 10),
-        width: 12,
-        height: 15,
-      ),
-      dark,
-    );
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(size.width / 2, size.height - 9),
-        width: 13,
-        height: 17,
-      ),
-      dark,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(size.width / 2, size.height / 2),
-          width: 17,
-          height: 28,
-        ),
-        const Radius.circular(7),
-      ),
-      orange,
-    );
-    canvas.drawCircle(Offset(size.width / 2, 22), 6, dark);
-    canvas.drawLine(
-      Offset(size.width * 0.25, 17),
-      Offset(size.width * 0.75, 17),
-      Paint()
-        ..color = dark.color
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _DestinationMarker extends StatelessWidget {
-  const _DestinationMarker({required this.destination});
-
-  final String destination;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Container(
-          constraints: const BoxConstraints(maxWidth: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                destination,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Text(
-                'Drop off',
-                style: TextStyle(
-                  color: AppColors.postmanOrangeDark,
-                  fontSize: 10,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Icon(
-          Icons.location_on_rounded,
-          color: AppColors.postmanOrange,
-          size: 38,
-        ),
-      ],
-    );
-  }
-}
-
 class _MapControl extends StatelessWidget {
   const _MapControl({
     required this.icon,
@@ -1033,29 +697,6 @@ class _MapControl extends StatelessWidget {
           size: 21,
           color: isActive ? AppColors.postmanOrangeDark : null,
         ),
-      ),
-    );
-  }
-}
-
-class _MapAttribution extends StatelessWidget {
-  const _MapAttribution({required this.routeAttributionVisible});
-
-  final bool routeAttributionVisible;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        routeAttributionVisible
-            ? '© OpenStreetMap contributors • Route: OSRM'
-            : '© OpenStreetMap contributors',
-        style: const TextStyle(color: AppColors.mutedInk, fontSize: 9),
       ),
     );
   }

@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_coordinate.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_failure.dart';
@@ -163,14 +163,38 @@ class NavigationRouteController extends ChangeNotifier {
       return false;
     }
 
-    final movedMeters = const Distance().as(
-      LengthUnit.Meter,
-      LatLng(lastOrigin.latitude, lastOrigin.longitude),
-      LatLng(origin.latitude, origin.longitude),
-    );
+    final movedMeters = _distanceMeters(lastOrigin, origin);
     return movedMeters >= minimumMovementMeters ||
         elapsed >= stationaryRefreshInterval;
   }
+
+  static double _distanceMeters(
+    NavigationCoordinate start,
+    NavigationCoordinate end,
+  ) {
+    const earthRadiusMeters = 6371000.0;
+    final startLatitude = _radians(start.latitude);
+    final endLatitude = _radians(end.latitude);
+    final latitudeDelta = endLatitude - startLatitude;
+    final longitudeDelta = _radians(end.longitude - start.longitude);
+    final latitudeTerm = math.sin(latitudeDelta / 2);
+    final longitudeTerm = math.sin(longitudeDelta / 2);
+    final haversine =
+        latitudeTerm * latitudeTerm +
+        math.cos(startLatitude) *
+            math.cos(endLatitude) *
+            longitudeTerm *
+            longitudeTerm;
+    final boundedHaversine = haversine.clamp(0.0, 1.0);
+    return 2 *
+        earthRadiusMeters *
+        math.atan2(
+          math.sqrt(boundedHaversine),
+          math.sqrt(1 - boundedHaversine),
+        );
+  }
+
+  static double _radians(double degrees) => degrees * math.pi / 180;
 
   bool _isCurrent(int generation) => !_disposed && generation == _generation;
 

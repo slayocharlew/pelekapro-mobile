@@ -90,18 +90,26 @@ Android credential, or recovered from the Laravel `.env` file. Google keys,
 Sanctum tokens, Map IDs, and Reverb secrets must not be placed directly in Dart
 source.
 
-The current Flutter navigation implementation remains independently configured
-with OpenStreetMap tiles and an OSRM-compatible routing service. If the embedded
-Flutter map is migrated to Google Maps later, create a separate Android key and
-restrict it to all of the following:
+The Flutter navigation view now uses Google Maps SDK for Android only as its map
+renderer. It remains independently configured from the Laravel browser maps and
+continues using an OSRM-compatible routing service for road geometry and turn
+guidance. The Android key is separate and restricted to all of the following:
 
 - Android package name `tz.co.pelekapro.mobile`;
 - the real debug and release SHA-1 signing-certificate fingerprints; and
 - Maps SDK for Android only.
 
-Use an Android-specific Map ID as well if the future native map configuration
-requires one. Never reuse the browser JavaScript Map ID. No Android Google Maps
-SDK, key, or Map ID is configured by this contract update.
+The key stays in the ignored `android/local.properties` file and is injected
+into the application manifest through a Gradle manifest placeholder. It is not
+read by Dart, printed, or committed. A safe placeholder is documented in
+`android/local.properties.example`, and a missing key produces a controlled
+map-unavailable UI. A future Android-specific Map ID may be used if native cloud
+styling requires one; never reuse the browser JavaScript Map ID.
+
+No Places, Google Routes, Navigation, Geocoding, or Street View service is used
+by the mobile app. Google receives map-rendering requests only. Device location
+samples continue to be submitted to Laravel through
+`POST /api/driver/deliveries/{delivery}/locations`.
 
 Changing the map renderer does not replace the authoritative tracking path:
 

@@ -20,14 +20,14 @@ class AuthFlow extends StatefulWidget {
     this.deliveryRepository,
     this.deviceLocationSource,
     this.navigationRouteService,
-    this.loadMapTiles = true,
+    this.loadGoogleMap = true,
   });
 
   final AuthRepository? repository;
   final DeliveryRepository? deliveryRepository;
   final DeviceLocationSource? deviceLocationSource;
   final NavigationRouteService? navigationRouteService;
-  final bool loadMapTiles;
+  final bool loadGoogleMap;
 
   @override
   State<AuthFlow> createState() => _AuthFlowState();
@@ -92,7 +92,7 @@ class _AuthFlowState extends State<AuthFlow> {
         onLoggedOut: _sessionController.showLogin,
         deviceLocationSource: widget.deviceLocationSource,
         navigationRouteService: widget.navigationRouteService,
-        loadMapTiles: widget.loadMapTiles,
+        loadGoogleMap: widget.loadGoogleMap,
       ),
       SessionStatus.failure => SessionErrorScreen(
         message: _sessionController.errorMessage!,

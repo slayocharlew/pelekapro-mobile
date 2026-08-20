@@ -27,7 +27,7 @@ class DeliveryDetailsScreen extends StatefulWidget {
     required this.onReturnToDeliveries,
     this.deviceLocationSource,
     this.navigationRouteService,
-    this.loadMapTiles = true,
+    this.loadGoogleMap = true,
     super.key,
   });
 
@@ -38,7 +38,7 @@ class DeliveryDetailsScreen extends StatefulWidget {
   final VoidCallback onReturnToDeliveries;
   final DeviceLocationSource? deviceLocationSource;
   final NavigationRouteService? navigationRouteService;
-  final bool loadMapTiles;
+  final bool loadGoogleMap;
 
   @override
   State<DeliveryDetailsScreen> createState() => _DeliveryDetailsScreenState();
@@ -95,7 +95,7 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
           onReturnToDeliveries: widget.onReturnToDeliveries,
           deviceLocationSource: widget.deviceLocationSource,
           navigationRouteService: widget.navigationRouteService,
-          loadMapTiles: widget.loadMapTiles,
+          loadGoogleMap: widget.loadGoogleMap,
         ),
       ),
     );

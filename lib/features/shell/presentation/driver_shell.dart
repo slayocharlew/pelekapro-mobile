@@ -27,7 +27,7 @@ class DriverShell extends StatefulWidget {
     required this.onLoggedOut,
     this.deviceLocationSource,
     this.navigationRouteService,
-    this.loadMapTiles = true,
+    this.loadGoogleMap = true,
     super.key,
   });
 
@@ -39,7 +39,7 @@ class DriverShell extends StatefulWidget {
   final VoidCallback onLoggedOut;
   final DeviceLocationSource? deviceLocationSource;
   final NavigationRouteService? navigationRouteService;
-  final bool loadMapTiles;
+  final bool loadGoogleMap;
 
   @override
   State<DriverShell> createState() => _DriverShellState();
@@ -126,7 +126,7 @@ class _DriverShellState extends State<DriverShell> {
           onReturnToDeliveries: _returnToDeliveries,
           deviceLocationSource: widget.deviceLocationSource,
           navigationRouteService: widget.navigationRouteService,
-          loadMapTiles: widget.loadMapTiles,
+          loadGoogleMap: widget.loadGoogleMap,
         ),
       ),
     );
@@ -143,7 +143,7 @@ class _DriverShellState extends State<DriverShell> {
           onReturnToDeliveries: _returnToDeliveries,
           deviceLocationSource: widget.deviceLocationSource,
           navigationRouteService: widget.navigationRouteService,
-          loadMapTiles: widget.loadMapTiles,
+          loadGoogleMap: widget.loadGoogleMap,
         ),
       ),
     );

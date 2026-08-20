@@ -13,14 +13,14 @@ class PelekaProApp extends StatelessWidget {
     this.deliveryRepository,
     this.deviceLocationSource,
     this.navigationRouteService,
-    this.loadMapTiles = true,
+    this.loadGoogleMap = true,
   });
 
   final AuthRepository? authRepository;
   final DeliveryRepository? deliveryRepository;
   final DeviceLocationSource? deviceLocationSource;
   final NavigationRouteService? navigationRouteService;
-  final bool loadMapTiles;
+  final bool loadGoogleMap;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +33,7 @@ class PelekaProApp extends StatelessWidget {
         deliveryRepository: deliveryRepository,
         deviceLocationSource: deviceLocationSource,
         navigationRouteService: navigationRouteService,
-        loadMapTiles: loadMapTiles,
+        loadGoogleMap: loadGoogleMap,
       ),
     );
   }
