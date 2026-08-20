@@ -11,6 +11,7 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_detai
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_store.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/start_delivery_controller.dart';
 import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
@@ -25,6 +26,8 @@ class DeliveryDetailsScreen extends StatefulWidget {
     required this.onSessionExpired,
     required this.onReturnToDeliveries,
     this.deviceLocationSource,
+    this.navigationRouteService,
+    this.loadMapTiles = true,
     super.key,
   });
 
@@ -34,6 +37,8 @@ class DeliveryDetailsScreen extends StatefulWidget {
   final VoidCallback onSessionExpired;
   final VoidCallback onReturnToDeliveries;
   final DeviceLocationSource? deviceLocationSource;
+  final NavigationRouteService? navigationRouteService;
+  final bool loadMapTiles;
 
   @override
   State<DeliveryDetailsScreen> createState() => _DeliveryDetailsScreenState();
@@ -89,6 +94,8 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
           onSessionExpired: widget.onSessionExpired,
           onReturnToDeliveries: widget.onReturnToDeliveries,
           deviceLocationSource: widget.deviceLocationSource,
+          navigationRouteService: widget.navigationRouteService,
+          loadMapTiles: widget.loadMapTiles,
         ),
       ),
     );

@@ -23,10 +23,7 @@ void main() {
         onUnauthorized: () {},
       );
       addTearDown(controller.dispose);
-      const request = DeliveryCompletionRequest(
-        deliveryPin: '123456',
-        collectedAmount: 25000,
-      );
+      const request = DeliveryCompletionRequest(collectedAmount: 25000);
 
       final firstSubmission = controller.complete(101, request);
       expect(controller.status, MarkDeliveredStatus.submitting);
@@ -49,7 +46,6 @@ void main() {
           message: 'Validation failed',
           statusCode: 422,
           fieldErrors: {
-            'delivery_pin': ['The delivery PIN is incorrect.'],
             'collected_amount': ['The collected amount is required.'],
           },
         ),
@@ -60,16 +56,13 @@ void main() {
       );
       addTearDown(controller.dispose);
 
-      await controller.complete(
-        101,
-        const DeliveryCompletionRequest(deliveryPin: '000000'),
-      );
+      await controller.complete(101, const DeliveryCompletionRequest());
 
       expect(controller.status, MarkDeliveredStatus.failure);
       expect(controller.errorStatusCode, 422);
       expect(
-        controller.fieldError('delivery_pin'),
-        'The delivery PIN is incorrect.',
+        controller.fieldError('collected_amount'),
+        'The collected amount is required.',
       );
       expect(controller.shouldReconcile, isFalse);
     });

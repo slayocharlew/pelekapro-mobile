@@ -23,7 +23,6 @@ class DeliveryUiModel {
     required this.note,
     required this.status,
     required this.lastUpdatedAt,
-    required this.pinRequired,
     required this.proofSupported,
     required this.photoProofSupported,
   });
@@ -86,7 +85,6 @@ class DeliveryUiModel {
           : null,
       status: delivery.status,
       lastUpdatedAt: delivery.timestamps.latest,
-      pinRequired: delivery.requirements.pinRequired,
       proofSupported: delivery.requirements.proofSupported,
       photoProofSupported:
           delivery.requirements.proofSupported &&
@@ -114,7 +112,6 @@ class DeliveryUiModel {
   final String? note;
   final DeliveryStatus status;
   final DateTime? lastUpdatedAt;
-  final bool pinRequired;
   final bool proofSupported;
   final bool photoProofSupported;
 
@@ -140,7 +137,6 @@ class DeliveryUiModel {
       note: note,
       status: status ?? this.status,
       lastUpdatedAt: lastUpdatedAt,
-      pinRequired: pinRequired,
       proofSupported: proofSupported,
       photoProofSupported: photoProofSupported,
     );

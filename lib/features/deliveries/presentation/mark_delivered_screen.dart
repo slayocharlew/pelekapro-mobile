@@ -44,7 +44,6 @@ class MarkDeliveredScreen extends StatefulWidget {
 }
 
 class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
-  final _pinController = TextEditingController();
   final _amountController = TextEditingController();
   late final MarkDeliveredController _controller;
   late final DeliveryProofPhotoPicker _photoPicker;
@@ -71,7 +70,6 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
 
   @override
   void dispose() {
-    _pinController.dispose();
     _amountController.dispose();
     _controller.dispose();
     super.dispose();
@@ -157,10 +155,6 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
   Future<void> _submit(DeliveryUiModel delivery) async {
     FocusScope.of(context).unfocus();
     final errors = <String, String>{};
-    final pin = _pinController.text.trim();
-    if (delivery.pinRequired && pin.isEmpty) {
-      errors['delivery_pin'] = 'Enter the delivery PIN.';
-    }
 
     double? collectedAmount;
     if (delivery.paymentCollectionRequired) {
@@ -183,7 +177,6 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
     await _controller.complete(
       delivery.id,
       DeliveryCompletionRequest(
-        deliveryPin: delivery.pinRequired ? pin : null,
         proofPhoto: _proofPhoto,
         collectedAmount: collectedAmount,
         deliveredLatitude: location?.latitude,
@@ -290,48 +283,6 @@ class _MarkDeliveredScreenState extends State<MarkDeliveredScreen> {
                           ),
                         ),
                       ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              if (delivery.pinRequired) ...[
-                AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Delivery PIN',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      TextField(
-                        key: const ValueKey('delivery-pin-input'),
-                        controller: _pinController,
-                        enabled: !_controller.isSubmitting,
-                        obscureText: true,
-                        obscuringCharacter: '•',
-                        keyboardType: TextInputType.visiblePassword,
-                        textCapitalization: TextCapitalization.characters,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        maxLength: 10,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
-                        ],
-                        decoration: InputDecoration(
-                          counterText: '',
-                          hintText: 'Enter PIN',
-                          errorText: _fieldError('delivery_pin'),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.md,
-                            vertical: 14,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),

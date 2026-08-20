@@ -9,6 +9,7 @@ import 'package:pelekapro_mobile/features/auth/presentation/session_controller.d
 import 'package:pelekapro_mobile/features/auth/presentation/session_error_screen.dart';
 import 'package:pelekapro_mobile/features/deliveries/delivery_composition.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/shell/presentation/driver_shell.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
@@ -18,11 +19,15 @@ class AuthFlow extends StatefulWidget {
     this.repository,
     this.deliveryRepository,
     this.deviceLocationSource,
+    this.navigationRouteService,
+    this.loadMapTiles = true,
   });
 
   final AuthRepository? repository;
   final DeliveryRepository? deliveryRepository;
   final DeviceLocationSource? deviceLocationSource;
+  final NavigationRouteService? navigationRouteService;
+  final bool loadMapTiles;
 
   @override
   State<AuthFlow> createState() => _AuthFlowState();
@@ -86,6 +91,8 @@ class _AuthFlowState extends State<AuthFlow> {
         onSessionExpired: _sessionController.showLogin,
         onLoggedOut: _sessionController.showLogin,
         deviceLocationSource: widget.deviceLocationSource,
+        navigationRouteService: widget.navigationRouteService,
+        loadMapTiles: widget.loadMapTiles,
       ),
       SessionStatus.failure => SessionErrorScreen(
         message: _sessionController.errorMessage!,

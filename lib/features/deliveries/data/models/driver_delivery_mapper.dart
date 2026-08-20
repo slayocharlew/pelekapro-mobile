@@ -55,7 +55,6 @@ abstract final class DriverDeliveryMapper {
         record: _paymentRecordFrom(_nullableMap(payment, 'payment_record')),
       ),
       requirements: DeliveryRequirements(
-        pinRequired: _requiredBool(requirements, 'pin_required'),
         proofSupported: _requiredBool(requirements, 'proof_supported'),
         availableProofTypes: List<String>.unmodifiable(
           _requiredList(

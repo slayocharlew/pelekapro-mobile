@@ -19,6 +19,9 @@ import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/active_navigation_screen.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_coordinate.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
@@ -418,9 +421,10 @@ void main() {
       find.byKey(const ValueKey('active-navigation-screen')),
       findsOneWidget,
     );
-    expect(find.byType(MotorcycleMarker), findsOneWidget);
-    expect(find.text('Turn right'), findsOneWidget);
-    expect(find.text('Ali Hassan Mwinyi Rd'), findsWidgets);
+    expect(find.byType(MotorcycleMarker), findsNothing);
+    expect(find.text('Finding your location'), findsOneWidget);
+    expect(find.text('Turn right'), findsNothing);
+    expect(find.text('Ali Hassan Mwinyi Rd'), findsNothing);
     expect(find.textContaining('OpenStreetMap'), findsOneWidget);
     expect(repository.restoreCalls, 1);
     expect(repository.loginCalls, 0);
@@ -453,10 +457,10 @@ void main() {
 
       expect(source.watchCalls, 1);
       source.emit(deliveryLocationSampleFixture());
-      await tester.pump();
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(deliveryRepository.locationCalls, 1);
+      expect(find.byType(MotorcycleMarker), findsOneWidget);
       expect(deliveryRepository.lastLocationDeliveryId, 101);
       expect(find.text('Live location on'), findsOneWidget);
 
@@ -483,6 +487,51 @@ void main() {
       source.emit(deliveryLocationSampleFixture());
       await tester.pump();
       expect(deliveryRepository.locationCalls, 1);
+    },
+  );
+
+  testWidgets(
+    'active navigation uses live coordinates and routing-service guidance',
+    (tester) async {
+      final source = _ControlledDeviceLocationSource();
+      addTearDown(source.close);
+      final routeService = _FakeNavigationRouteService(
+        result: NavigationRoute(
+          geometry: const [
+            NavigationCoordinate(latitude: -6.7924, longitude: 39.2083),
+            NavigationCoordinate(latitude: -6.7800, longitude: 39.2200),
+            NavigationCoordinate(latitude: -6.7690, longitude: 39.2340),
+          ],
+          distanceMeters: 3200,
+          durationSeconds: 360,
+          guidance: const NavigationGuidance(
+            instruction: 'Turn right',
+            roadName: 'Mwai Kibaki Road',
+            distanceMeters: 180,
+            maneuver: NavigationManeuver.right,
+          ),
+        ),
+      );
+      await _pumpApp(
+        tester,
+        repository: _authenticatedRepository(),
+        deliveryRepository: _FakeDeliveryRepository(),
+        deviceLocationSource: source,
+        navigationRouteService: routeService,
+      );
+      await _openFirstNavigation(tester);
+
+      source.emit(deliveryLocationSampleFixture());
+      await tester.pumpAndSettle();
+
+      expect(routeService.calls, 1);
+      expect(routeService.lastOrigin?.latitude, -6.7924);
+      expect(routeService.lastDestination?.latitude, -6.769);
+      expect(find.text('Turn right'), findsOneWidget);
+      expect(find.text('Mwai Kibaki Road'), findsOneWidget);
+      expect(find.text('200 m'), findsOneWidget);
+      expect(find.text('6 min • 3.2 km'), findsOneWidget);
+      expect(find.text('Ali Hassan Mwinyi Rd'), findsNothing);
     },
   );
 
@@ -668,10 +717,7 @@ void main() {
       expect(find.text('Proof of delivery'), findsOneWidget);
       expect(find.text('Cash'), findsOneWidget);
 
-      await tester.enterText(
-        find.byKey(const ValueKey('delivery-pin-input')),
-        '123456',
-      );
+      expect(find.byKey(const ValueKey('delivery-pin-input')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('confirm-delivered-api')));
       await tester.pumpAndSettle();
       expect(
@@ -691,13 +737,12 @@ void main() {
       expect(deliveryRepository.startCalls, 1);
       expect(deliveryRepository.completionCalls, 1);
       expect(deliveryRepository.lastCompletedDeliveryId, 101);
-      expect(deliveryRepository.lastCompletionRequest?.deliveryPin, '123456');
       expect(deliveryRepository.lastCompletionRequest?.collectedAmount, 25000);
       expect(deliveryRepository.lastCompletionRequest?.proofPhoto, isNull);
     },
   );
 
-  testWidgets('completion requires the PIN before calling Laravel', (
+  testWidgets('completion follows the PIN-free backend contract', (
     tester,
   ) async {
     final deliveryRepository = _FakeDeliveryRepository();
@@ -710,10 +755,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('mark-delivered-api')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('confirm-delivered-api')));
-    await tester.pump();
 
-    expect(find.text('Enter the delivery PIN.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-pin-input')), findsNothing);
+    expect(find.text('Delivery PIN'), findsNothing);
     expect(deliveryRepository.completionCalls, 0);
     expect(find.byKey(const ValueKey('mark-delivered-screen')), findsOneWidget);
   });
@@ -726,7 +770,7 @@ void main() {
         message: 'Validation failed',
         statusCode: 422,
         fieldErrors: {
-          'delivery_pin': ['The delivery PIN is incorrect.'],
+          'collected_amount': ['The collected amount is incorrect.'],
         },
       ),
     );
@@ -739,14 +783,14 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('mark-delivered-api')));
     await tester.pumpAndSettle();
-    final pinField = find.byKey(const ValueKey('delivery-pin-input'));
-    await tester.enterText(pinField, '000000');
+    final amountField = find.byKey(const ValueKey('collected-amount-input'));
+    await tester.enterText(amountField, '20000');
     await tester.tap(find.byKey(const ValueKey('confirm-delivered-api')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('mark-delivered-error')), findsOneWidget);
-    expect(find.text('The delivery PIN is incorrect.'), findsOneWidget);
-    expect(tester.widget<TextField>(pinField).controller?.text, '000000');
+    expect(find.text('The collected amount is incorrect.'), findsOneWidget);
+    expect(tester.widget<TextField>(amountField).controller?.text, '20000');
     expect(deliveryRepository.completionCalls, 1);
     expect(find.byKey(const ValueKey('delivered-result-screen')), findsNothing);
   });
@@ -773,9 +817,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('open-active-navigation')));
     await tester.pumpAndSettle();
     expect(
-      find.bySemanticsLabel(
-        'OpenStreetMap style navigation preview in Oysterbay, Dar es Salaam',
-      ),
+      find.bySemanticsLabel('Live OpenStreetMap navigation to Oysterbay'),
       findsOneWidget,
     );
     await tester.tap(find.byKey(const ValueKey('report-issue-local')));
@@ -908,6 +950,7 @@ void main() {
           authRepository: _authenticatedRepository(),
           deliveryRepository: _FakeDeliveryRepository(),
           deviceLocationSource: _EmptyDeviceLocationSource(),
+          loadMapTiles: false,
         ),
       );
       await tester.pumpAndSettle();
@@ -937,6 +980,7 @@ void main() {
         authRepository: _authenticatedRepository(),
         deliveryRepository: _FakeDeliveryRepository(),
         deviceLocationSource: _EmptyDeviceLocationSource(),
+        loadMapTiles: false,
       ),
     );
     await tester.pumpAndSettle();
@@ -1073,6 +1117,7 @@ Future<void> _pumpApp(
   AuthRepository? repository,
   DeliveryRepository? deliveryRepository,
   DeviceLocationSource? deviceLocationSource,
+  NavigationRouteService? navigationRouteService,
 }) async {
   _usePhoneSurface(tester);
   await tester.pumpWidget(
@@ -1081,6 +1126,8 @@ Future<void> _pumpApp(
       deliveryRepository: deliveryRepository ?? _FakeDeliveryRepository(),
       deviceLocationSource:
           deviceLocationSource ?? _EmptyDeviceLocationSource(),
+      navigationRouteService: navigationRouteService,
+      loadMapTiles: false,
     ),
   );
   await tester.pumpAndSettle();
@@ -1345,6 +1392,32 @@ class _ControlledDeviceLocationSource implements DeviceLocationSource {
     watchCalls += 1;
     return _controller.stream;
   }
+}
+
+class _FakeNavigationRouteService implements NavigationRouteService {
+  _FakeNavigationRouteService({required this.result});
+
+  final NavigationRoute result;
+  int calls = 0;
+  NavigationCoordinate? lastOrigin;
+  NavigationCoordinate? lastDestination;
+
+  @override
+  bool get isConfigured => true;
+
+  @override
+  Future<NavigationRoute> route({
+    required NavigationCoordinate origin,
+    required NavigationCoordinate destination,
+  }) async {
+    calls += 1;
+    lastOrigin = origin;
+    lastDestination = destination;
+    return result;
+  }
+
+  @override
+  void close() {}
 }
 
 const _testDriver = AuthUser(

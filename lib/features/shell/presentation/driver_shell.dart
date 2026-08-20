@@ -14,6 +14,7 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_st
 import 'package:pelekapro_mobile/features/deliveries/presentation/deliveries_page.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_screen.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class DriverShell extends StatefulWidget {
@@ -25,6 +26,8 @@ class DriverShell extends StatefulWidget {
     required this.onSessionExpired,
     required this.onLoggedOut,
     this.deviceLocationSource,
+    this.navigationRouteService,
+    this.loadMapTiles = true,
     super.key,
   });
 
@@ -35,6 +38,8 @@ class DriverShell extends StatefulWidget {
   final VoidCallback onSessionExpired;
   final VoidCallback onLoggedOut;
   final DeviceLocationSource? deviceLocationSource;
+  final NavigationRouteService? navigationRouteService;
+  final bool loadMapTiles;
 
   @override
   State<DriverShell> createState() => _DriverShellState();
@@ -120,6 +125,8 @@ class _DriverShellState extends State<DriverShell> {
           onSessionExpired: _handleSessionExpired,
           onReturnToDeliveries: _returnToDeliveries,
           deviceLocationSource: widget.deviceLocationSource,
+          navigationRouteService: widget.navigationRouteService,
+          loadMapTiles: widget.loadMapTiles,
         ),
       ),
     );
@@ -135,6 +142,8 @@ class _DriverShellState extends State<DriverShell> {
           onSessionExpired: _handleSessionExpired,
           onReturnToDeliveries: _returnToDeliveries,
           deviceLocationSource: widget.deviceLocationSource,
+          navigationRouteService: widget.navigationRouteService,
+          loadMapTiles: widget.loadMapTiles,
         ),
       ),
     );

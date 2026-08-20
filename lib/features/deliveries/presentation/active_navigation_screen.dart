@@ -2,9 +2,13 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:pelekapro_mobile/app/theme/app_spacing.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
+import 'package:pelekapro_mobile/core/config/app_config.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_details_controller.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_formatters.dart';
@@ -12,10 +16,14 @@ import 'package:pelekapro_mobile/features/deliveries/presentation/delivery_ui_st
 import 'package:pelekapro_mobile/features/deliveries/presentation/mark_delivered_screen.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/models/delivery_ui_model.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/report_issue_screen.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_coordinate.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
+import 'package:pelekapro_mobile/features/navigation/navigation_composition.dart';
+import 'package:pelekapro_mobile/features/navigation/presentation/navigation_route_controller.dart';
 import 'package:pelekapro_mobile/features/tracking/data/geolocator_device_location_source.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 import 'package:pelekapro_mobile/features/tracking/presentation/foreground_location_controller.dart';
-import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
 
 class ActiveNavigationScreen extends StatefulWidget {
@@ -27,6 +35,9 @@ class ActiveNavigationScreen extends StatefulWidget {
     required this.onReturnToDeliveries,
     this.initialDetails,
     this.deviceLocationSource,
+    this.navigationRouteService,
+    this.mapTileUrlTemplate,
+    this.loadMapTiles = true,
     super.key,
   });
 
@@ -37,6 +48,9 @@ class ActiveNavigationScreen extends StatefulWidget {
   final VoidCallback onReturnToDeliveries;
   final DriverDeliveryDetails? initialDetails;
   final DeviceLocationSource? deviceLocationSource;
+  final NavigationRouteService? navigationRouteService;
+  final String? mapTileUrlTemplate;
+  final bool loadMapTiles;
 
   @override
   State<ActiveNavigationScreen> createState() => _ActiveNavigationScreenState();
@@ -46,9 +60,14 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
     with WidgetsBindingObserver {
   late final DeliveryDetailsController _detailsController;
   late final ForegroundLocationController _locationController;
-  var _isMuted = false;
+  late final NavigationRouteService _navigationRouteService;
+  late final NavigationRouteController _routeController;
+  late final bool _ownsNavigationRouteService;
   var _isForeground = true;
   var _isReconciling = false;
+  var _followDriver = true;
+  var _followHeading = true;
+  var _recenterRequest = 0;
 
   @override
   void initState() {
@@ -74,6 +93,13 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
       onTrackingRejected: _refreshAfterTrackingRejection,
       onConnectionRestored: _reconcileAndResume,
     );
+    _ownsNavigationRouteService = widget.navigationRouteService == null;
+    _navigationRouteService =
+        widget.navigationRouteService ??
+        NavigationComposition.createRouteService();
+    _routeController = NavigationRouteController(_navigationRouteService);
+    _detailsController.addListener(_navigationInputChanged);
+    _locationController.addListener(_navigationInputChanged);
     if (widget.initialDetails == null) {
       unawaited(_loadDetails());
     } else {
@@ -88,9 +114,91 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _detailsController.removeListener(_navigationInputChanged);
+    _locationController.removeListener(_navigationInputChanged);
+    _routeController.dispose();
+    if (_ownsNavigationRouteService) {
+      _navigationRouteService.close();
+    }
     _locationController.dispose();
     _detailsController.dispose();
     super.dispose();
+  }
+
+  void _navigationInputChanged() {
+    final origin = _currentCoordinate;
+    final destination = _dropoffCoordinate;
+    if (origin == null || destination == null) {
+      return;
+    }
+    unawaited(
+      _routeController.update(origin: origin, destination: destination),
+    );
+  }
+
+  NavigationCoordinate? get _currentCoordinate {
+    final location = _locationController.latestDeviceLocation;
+    if (location == null) {
+      return null;
+    }
+    return NavigationCoordinate(
+      latitude: location.latitude,
+      longitude: location.longitude,
+    );
+  }
+
+  NavigationCoordinate? get _dropoffCoordinate {
+    final delivery = _detailsController.details?.delivery;
+    if (delivery == null) {
+      return null;
+    }
+    return _coordinateFromDelivery(delivery);
+  }
+
+  NavigationCoordinate? _coordinateFromDelivery(DriverDelivery delivery) {
+    final latitude = delivery.dropoff.latitude;
+    final longitude = delivery.dropoff.longitude;
+    if (latitude == null ||
+        longitude == null ||
+        !latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180) {
+      return null;
+    }
+    return NavigationCoordinate(latitude: latitude, longitude: longitude);
+  }
+
+  void _recenter() {
+    setState(() {
+      _followDriver = true;
+      _recenterRequest += 1;
+    });
+  }
+
+  void _toggleCompassMode() {
+    setState(() {
+      _followHeading = !_followHeading;
+      _followDriver = true;
+      _recenterRequest += 1;
+    });
+  }
+
+  void _mapInteractionStarted() {
+    if (_followDriver) {
+      setState(() => _followDriver = false);
+    }
+  }
+
+  Future<void> _retryRoute() async {
+    final origin = _currentCoordinate;
+    final destination = _dropoffCoordinate;
+    if (origin == null || destination == null) {
+      return;
+    }
+    await _routeController.retry(origin: origin, destination: destination);
   }
 
   @override
@@ -243,18 +351,32 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
       animation: Listenable.merge([
         _detailsController,
         _locationController,
+        _routeController,
         widget.store,
       ]),
       builder: (context, _) {
         final delivery = widget.store.deliveryById(widget.deliveryId);
+        final destination = _dropoffCoordinate;
+        final currentLocation = _currentCoordinate;
         return Scaffold(
           key: const ValueKey('active-navigation-screen'),
           body: Stack(
             children: [
               Positioned.fill(
                 child: _NavigationMap(
-                  destination: delivery.dropoffArea.split(',').first,
+                  destinationLabel: delivery.dropoffArea.split(',').first,
+                  destination: destination,
+                  currentLocation: currentLocation,
+                  route: _routeController.route,
                   heading: _locationController.heading,
+                  tileUrlTemplate: widget.loadMapTiles
+                      ? widget.mapTileUrlTemplate ??
+                            AppConfig.mapTileUrlTemplate
+                      : null,
+                  followDriver: _followDriver,
+                  followHeading: _followHeading,
+                  recenterRequest: _recenterRequest,
+                  onInteractionStarted: _mapInteractionStarted,
                 ),
               ),
               SafeArea(
@@ -270,16 +392,15 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                     children: [
                       _NavigationTopBar(
                         onBack: () => Navigator.of(context).pop(),
-                        onCall: () => ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Calling will use the live customer number later.',
-                            ),
-                          ),
-                        ),
+                        destination: delivery.dropoffArea.split(',').first,
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      const _TurnInstruction(),
+                      _TurnInstruction(
+                        destinationAvailable: destination != null,
+                        currentLocationAvailable: currentLocation != null,
+                        controller: _routeController,
+                        onRetry: () => unawaited(_retryRoute()),
+                      ),
                     ],
                   ),
                 ),
@@ -290,29 +411,31 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                 child: Column(
                   children: [
                     _MapControl(
-                      icon: _isMuted
-                          ? Icons.volume_off_outlined
-                          : Icons.volume_up_outlined,
-                      label: _isMuted ? 'Unmute guidance' : 'Mute guidance',
-                      onPressed: () => setState(() => _isMuted = !_isMuted),
+                      icon: _followHeading
+                          ? Icons.explore_rounded
+                          : Icons.north_rounded,
+                      label: _followHeading
+                          ? 'Use north-up map'
+                          : 'Follow travel direction',
+                      onPressed: _toggleCompassMode,
                     ),
                     const SizedBox(height: AppSpacing.xs),
-                    const _MapControl(
-                      icon: Icons.explore_outlined,
-                      label: 'Compass',
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    const _MapControl(
+                    _MapControl(
                       icon: Icons.my_location_rounded,
                       label: 'Recenter',
+                      isActive: _followDriver,
+                      onPressed: _recenter,
                     ),
                   ],
                 ),
               ),
               Positioned(
                 left: AppSpacing.sm,
-                bottom: MediaQuery.sizeOf(context).height * 0.45,
-                child: const _MapAttribution(),
+                bottom:
+                    MediaQuery.sizeOf(context).height * 0.48 + AppSpacing.xs,
+                child: _MapAttribution(
+                  routeAttributionVisible: _routeController.route != null,
+                ),
               ),
               DraggableScrollableSheet(
                 initialChildSize: 0.48,
@@ -326,6 +449,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                     detailsStatus: _detailsController.status,
                     detailsError: _detailsController.errorMessage,
                     locationController: _locationController,
+                    routeController: _routeController,
                     failureReasonsAvailable:
                         _detailsController.details?.failureReasons.isNotEmpty ??
                         false,
@@ -347,10 +471,10 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
 }
 
 class _NavigationTopBar extends StatelessWidget {
-  const _NavigationTopBar({required this.onBack, required this.onCall});
+  const _NavigationTopBar({required this.onBack, required this.destination});
 
   final VoidCallback onBack;
-  final VoidCallback onCall;
+  final String destination;
 
   @override
   Widget build(BuildContext context) {
@@ -369,18 +493,33 @@ class _NavigationTopBar extends StatelessWidget {
             tooltip: 'Back',
             icon: const Icon(Icons.arrow_back_rounded),
           ),
-          const Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: PelekaProBrand(compact: true, showMobile: false),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Drop off',
+                  style: TextStyle(color: AppColors.mutedInk, fontSize: 11),
+                ),
+                Text(
+                  destination,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-          IconButton(
-            onPressed: onCall,
-            tooltip: 'Call customer',
-            icon: const Icon(
-              Icons.phone_outlined,
+          const Padding(
+            padding: EdgeInsets.only(right: AppSpacing.sm),
+            child: Icon(
+              Icons.location_on_rounded,
               color: AppColors.postmanOrange,
+              size: 24,
             ),
           ),
         ],
@@ -390,10 +529,67 @@ class _NavigationTopBar extends StatelessWidget {
 }
 
 class _TurnInstruction extends StatelessWidget {
-  const _TurnInstruction();
+  const _TurnInstruction({
+    required this.destinationAvailable,
+    required this.currentLocationAvailable,
+    required this.controller,
+    required this.onRetry,
+  });
+
+  final bool destinationAvailable;
+  final bool currentLocationAvailable;
+  final NavigationRouteController controller;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
+    final route = controller.route;
+    final NavigationGuidance? guidance = route?.guidance;
+    final (IconData, String, String, String?) presentation;
+    if (!destinationAvailable) {
+      presentation = (
+        Icons.location_off_outlined,
+        'Drop-off pin missing',
+        'Ask dispatch to set exact destination coordinates.',
+        null,
+      );
+    } else if (!currentLocationAvailable) {
+      presentation = (
+        Icons.gps_not_fixed_rounded,
+        'Finding your location',
+        'Keep device location turned on.',
+        null,
+      );
+    } else if (guidance != null) {
+      presentation = (
+        _maneuverIcon(guidance.maneuver),
+        guidance.instruction,
+        guidance.roadName,
+        _formatDistance(guidance.distanceMeters),
+      );
+    } else if (controller.status == NavigationRouteStatus.loading) {
+      presentation = (
+        Icons.route_rounded,
+        'Building the road route',
+        'Using your position and the real drop-off pin.',
+        null,
+      );
+    } else {
+      presentation = (
+        Icons.route_outlined,
+        'Road guidance unavailable',
+        controller.message ?? 'Showing real map positions only.',
+        null,
+      );
+    }
+
+    final (icon, title, subtitle, distance) = presentation;
+    final canRetry =
+        destinationAvailable &&
+        currentLocationAvailable &&
+        controller.isConfigured &&
+        controller.status != NavigationRouteStatus.loading;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(
@@ -405,207 +601,276 @@ class _TurnInstruction extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(
-            Icons.turn_right_rounded,
-            color: AppColors.postmanOrange,
-            size: 34,
-          ),
-          SizedBox(width: AppSpacing.sm),
+          Icon(icon, color: AppColors.postmanOrange, size: 34),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Turn right',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 Text(
-                  'Ali Hassan Mwinyi Rd',
-                  style: TextStyle(color: AppColors.mutedInk, fontSize: 13),
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.mutedInk,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
           ),
-          Text(
-            '150 m',
-            style: TextStyle(
-              color: AppColors.postmanOrangeDark,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
+          if (distance != null)
+            Text(
+              distance,
+              style: const TextStyle(
+                color: AppColors.postmanOrangeDark,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            )
+          else if (canRetry)
+            IconButton(
+              key: const ValueKey('retry-navigation-route'),
+              onPressed: onRetry,
+              tooltip: 'Retry route',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.refresh_rounded, size: 21),
             ),
-          ),
         ],
       ),
     );
   }
+
+  static IconData _maneuverIcon(NavigationManeuver maneuver) {
+    return switch (maneuver) {
+      NavigationManeuver.slightLeft => Icons.turn_slight_left_rounded,
+      NavigationManeuver.left => Icons.turn_left_rounded,
+      NavigationManeuver.sharpLeft => Icons.turn_sharp_left_rounded,
+      NavigationManeuver.slightRight => Icons.turn_slight_right_rounded,
+      NavigationManeuver.right => Icons.turn_right_rounded,
+      NavigationManeuver.sharpRight => Icons.turn_sharp_right_rounded,
+      NavigationManeuver.uTurn => Icons.u_turn_left_rounded,
+      NavigationManeuver.merge => Icons.merge_rounded,
+      NavigationManeuver.fork => Icons.fork_right_rounded,
+      NavigationManeuver.roundabout => Icons.roundabout_right_rounded,
+      NavigationManeuver.arrive => Icons.flag_rounded,
+      NavigationManeuver.depart ||
+      NavigationManeuver.straight => Icons.straight_rounded,
+    };
+  }
+
+  static String _formatDistance(double meters) {
+    if (meters < 1000) {
+      final rounded = meters < 100
+          ? (meters / 10).round() * 10
+          : (meters / 50).round() * 50;
+      return '${rounded.clamp(0, 950)} m';
+    }
+    final kilometers = meters / 1000;
+    return '${kilometers < 10 ? kilometers.toStringAsFixed(1) : kilometers.round()} km';
+  }
 }
 
-class _NavigationMap extends StatelessWidget {
-  const _NavigationMap({required this.destination, required this.heading});
+class _NavigationMap extends StatefulWidget {
+  const _NavigationMap({
+    required this.destinationLabel,
+    required this.destination,
+    required this.currentLocation,
+    required this.route,
+    required this.heading,
+    required this.tileUrlTemplate,
+    required this.followDriver,
+    required this.followHeading,
+    required this.recenterRequest,
+    required this.onInteractionStarted,
+  });
 
-  final String destination;
+  final String destinationLabel;
+  final NavigationCoordinate? destination;
+  final NavigationCoordinate? currentLocation;
+  final NavigationRoute? route;
   final double? heading;
+  final String? tileUrlTemplate;
+  final bool followDriver;
+  final bool followHeading;
+  final int recenterRequest;
+  final VoidCallback onInteractionStarted;
+
+  @override
+  State<_NavigationMap> createState() => _NavigationMapState();
+}
+
+class _NavigationMapState extends State<_NavigationMap> {
+  final _mapController = MapController();
+  var _isMapReady = false;
+  var _hasCenteredOnDriver = false;
+
+  @override
+  void didUpdateWidget(covariant _NavigationMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.followDriver &&
+        (oldWidget.currentLocation != widget.currentLocation ||
+            oldWidget.heading != widget.heading ||
+            oldWidget.followHeading != widget.followHeading ||
+            oldWidget.recenterRequest != widget.recenterRequest)) {
+      _scheduleFollow();
+    } else if (widget.currentLocation == null &&
+        oldWidget.destination != widget.destination) {
+      _scheduleDestination();
+    }
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  void _scheduleFollow() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _followDriver());
+  }
+
+  void _scheduleDestination() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showDestination());
+  }
+
+  void _followDriver() {
+    final location = widget.currentLocation;
+    if (!mounted || !_isMapReady || location == null) {
+      return;
+    }
+    final zoom = _hasCenteredOnDriver
+        ? _mapController.camera.zoom.clamp(15.5, 18.5)
+        : 17.0;
+    _hasCenteredOnDriver = true;
+    _mapController.moveAndRotate(
+      _latLng(location),
+      zoom,
+      widget.followHeading ? widget.heading ?? 0 : 0,
+      id: 'follow-driver',
+    );
+  }
+
+  void _showDestination() {
+    final destination = widget.destination;
+    if (!mounted || !_isMapReady || destination == null) {
+      return;
+    }
+    _mapController.move(_latLng(destination), 15.5, id: 'show-destination');
+  }
+
+  void _handleMapEvent(MapEvent event) {
+    if (switch (event.source) {
+      MapEventSource.dragStart ||
+      MapEventSource.doubleTap ||
+      MapEventSource.doubleTapHold ||
+      MapEventSource.multiFingerGestureStart ||
+      MapEventSource.scrollWheel ||
+      MapEventSource.cursorKeyboardRotation => true,
+      _ => false,
+    }) {
+      widget.onInteractionStarted();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      label:
-          'OpenStreetMap style navigation preview in $destination, Dar es Salaam',
-      excludeSemantics: true,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final height = constraints.maxHeight;
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              const CustomPaint(painter: _DarMapPainter()),
-              Positioned(
-                left: width * 0.52,
-                top: height * 0.29,
-                child: const _RoadLabel('Ali Hassan Mwinyi Rd'),
-              ),
-              Positioned(
-                left: width * 0.05,
-                top: height * 0.37,
-                child: const _RoadLabel('Mwai Kibaki Rd'),
-              ),
-              Positioned(
-                left: width * 0.10,
-                top: height * 0.31,
-                child: Text(
-                  destination.toUpperCase(),
-                  style: TextStyle(
-                    color: Color(0xFF6B7780),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-              Positioned(
-                left: width * 0.56,
-                top: height * 0.22,
-                child: _DestinationMarker(destination: destination),
-              ),
-              Positioned(
-                left: width * 0.47,
-                top: height * 0.43,
-                child: Transform.rotate(
-                  angle: (heading ?? 0) * math.pi / 180,
-                  child: const MotorcycleMarker(),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _DarMapPainter extends CustomPainter {
-  const _DarMapPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFFF1F2EF),
-    );
-
-    final parkPaint = Paint()..color = const Color(0xFFDCEEDB);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.width * 0.68, size.height * 0.18, 150, 105),
-        const Radius.circular(28),
-      ),
-      parkPaint,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.width * 0.08, size.height * 0.28, 100, 70),
-        const Radius.circular(20),
-      ),
-      parkPaint,
-    );
-
-    final minorRoad = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 9
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    final roadEdge = Paint()
-      ..color = const Color(0xFFE0E2DE)
-      ..strokeWidth = 11
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final roads = <Path>[
-      Path()
-        ..moveTo(-20, size.height * 0.24)
-        ..quadraticBezierTo(
-          size.width * 0.45,
-          size.height * 0.30,
-          size.width + 20,
-          size.height * 0.20,
+    final initial =
+        widget.currentLocation ??
+        widget.destination ??
+        const NavigationCoordinate(latitude: -6.7924, longitude: 39.2083);
+    final routePoints = widget.route?.geometry
+        .map(_latLng)
+        .toList(growable: false);
+    final markers = <Marker>[
+      if (widget.destination case final destination?)
+        Marker(
+          point: _latLng(destination),
+          width: 180,
+          height: 90,
+          alignment: Alignment.bottomCenter,
+          rotate: true,
+          child: _DestinationMarker(destination: widget.destinationLabel),
         ),
-      Path()
-        ..moveTo(-20, size.height * 0.40)
-        ..quadraticBezierTo(
-          size.width * 0.46,
-          size.height * 0.36,
-          size.width + 20,
-          size.height * 0.43,
+      if (widget.currentLocation case final currentLocation?)
+        Marker(
+          point: _latLng(currentLocation),
+          width: 48,
+          height: 62,
+          rotate: true,
+          child: Transform.rotate(
+            angle: widget.followHeading
+                ? 0
+                : (widget.heading ?? 0) * math.pi / 180,
+            child: const MotorcycleMarker(),
+          ),
         ),
-      Path()
-        ..moveTo(size.width * 0.20, 0)
-        ..lineTo(size.width * 0.34, size.height * 0.62),
-      Path()
-        ..moveTo(size.width * 0.76, 0)
-        ..lineTo(size.width * 0.62, size.height * 0.64),
-      Path()
-        ..moveTo(size.width * 0.08, 0)
-        ..lineTo(size.width * 0.87, size.height * 0.60),
     ];
 
-    for (final road in roads) {
-      canvas.drawPath(road, roadEdge);
-      canvas.drawPath(road, minorRoad);
-    }
-
-    final route = Path()
-      ..moveTo(size.width * 0.50, size.height * 0.52)
-      ..lineTo(size.width * 0.49, size.height * 0.34)
-      ..quadraticBezierTo(
-        size.width * 0.49,
-        size.height * 0.31,
-        size.width * 0.54,
-        size.height * 0.31,
-      )
-      ..lineTo(size.width * 0.63, size.height * 0.24);
-    canvas.drawPath(
-      route,
-      Paint()
-        ..color = Colors.white
-        ..strokeWidth = 11
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-    canvas.drawPath(
-      route,
-      Paint()
-        ..color = AppColors.postmanOrange
-        ..strokeWidth = 6
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
+    return Semantics(
+      label: 'Live OpenStreetMap navigation to ${widget.destinationLabel}',
+      excludeSemantics: true,
+      child: ColoredBox(
+        color: const Color(0xFFE9ECE8),
+        child: FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _latLng(initial),
+            initialZoom: widget.currentLocation != null ? 17 : 15.5,
+            initialRotation: widget.followHeading ? widget.heading ?? 0 : 0,
+            minZoom: 4,
+            maxZoom: 19,
+            backgroundColor: const Color(0xFFE9ECE8),
+            onMapReady: () {
+              _isMapReady = true;
+              if (widget.currentLocation != null && widget.followDriver) {
+                _scheduleFollow();
+              } else {
+                _scheduleDestination();
+              }
+            },
+            onMapEvent: _handleMapEvent,
+          ),
+          children: [
+            if (widget.tileUrlTemplate case final tileUrl?)
+              TileLayer(
+                urlTemplate: tileUrl,
+                userAgentPackageName: 'tz.co.pelekapro.mobile',
+                maxNativeZoom: 19,
+              ),
+            if (routePoints != null && routePoints.length >= 2)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: routePoints,
+                    color: AppColors.postmanOrange,
+                    borderColor: Colors.white,
+                    borderStrokeWidth: 3,
+                    strokeWidth: 7,
+                  ),
+                ],
+              ),
+            MarkerLayer(markers: markers),
+          ],
+        ),
+      ),
     );
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  static LatLng _latLng(NavigationCoordinate coordinate) {
+    return LatLng(coordinate.latitude, coordinate.longitude);
+  }
 }
 
 class MotorcycleMarker extends StatelessWidget {
@@ -693,26 +958,25 @@ class _DestinationMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        const Icon(
-          Icons.location_on_rounded,
-          color: AppColors.postmanOrange,
-          size: 38,
-        ),
         Container(
-          margin: const EdgeInsets.only(top: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          constraints: const BoxConstraints(maxWidth: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.94),
             borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: AppColors.border),
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 destination,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -728,58 +992,56 @@ class _DestinationMarker extends StatelessWidget {
             ],
           ),
         ),
+        const Icon(
+          Icons.location_on_rounded,
+          color: AppColors.postmanOrange,
+          size: 38,
+        ),
       ],
     );
   }
 }
 
-class _RoadLabel extends StatelessWidget {
-  const _RoadLabel(this.label);
+class _MapControl extends StatelessWidget {
+  const _MapControl({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.isActive = false,
+  });
 
+  final IconData icon;
   final String label;
+  final VoidCallback onPressed;
+  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: -0.12,
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF5F666C),
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
+    return Material(
+      color: isActive
+          ? AppColors.postmanOrangeSoft.withValues(alpha: 0.96)
+          : AppColors.white.withValues(alpha: 0.96),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      child: IconButton(
+        onPressed: onPressed,
+        tooltip: label,
+        icon: Icon(
+          icon,
+          size: 21,
+          color: isActive ? AppColors.postmanOrangeDark : null,
         ),
       ),
     );
   }
 }
 
-class _MapControl extends StatelessWidget {
-  const _MapControl({required this.icon, required this.label, this.onPressed});
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.white.withValues(alpha: 0.96),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.border),
-      ),
-      child: IconButton(
-        onPressed: onPressed ?? () {},
-        tooltip: label,
-        icon: Icon(icon, size: 21),
-      ),
-    );
-  }
-}
-
 class _MapAttribution extends StatelessWidget {
-  const _MapAttribution();
+  const _MapAttribution({required this.routeAttributionVisible});
+
+  final bool routeAttributionVisible;
 
   @override
   Widget build(BuildContext context) {
@@ -789,9 +1051,11 @@ class _MapAttribution extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: const Text(
-        'OpenStreetMap • UI preview',
-        style: TextStyle(color: AppColors.mutedInk, fontSize: 9),
+      child: Text(
+        routeAttributionVisible
+            ? '© OpenStreetMap contributors • Route: OSRM'
+            : '© OpenStreetMap contributors',
+        style: const TextStyle(color: AppColors.mutedInk, fontSize: 9),
       ),
     );
   }
@@ -804,6 +1068,7 @@ class _DeliveryNavigationSheet extends StatelessWidget {
     required this.detailsStatus,
     required this.detailsError,
     required this.locationController,
+    required this.routeController,
     required this.failureReasonsAvailable,
     required this.onRetryDetails,
     required this.onRetryLocation,
@@ -818,6 +1083,7 @@ class _DeliveryNavigationSheet extends StatelessWidget {
   final DeliveryDetailsStatus detailsStatus;
   final String? detailsError;
   final ForegroundLocationController locationController;
+  final NavigationRouteController routeController;
   final bool failureReasonsAvailable;
   final VoidCallback onRetryDetails;
   final VoidCallback onRetryLocation;
@@ -896,14 +1162,37 @@ class _DeliveryNavigationSheet extends StatelessWidget {
             value: _shortArea(delivery.dropoffArea),
           ),
           const SizedBox(height: AppSpacing.sm),
-          _SheetMetric(
-            label: 'Last update',
-            value: formatDeliveryTime(
-              context,
-              locationController.lastRecordedLocation?.recordedAt ??
-                  delivery.lastUpdatedAt,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _SheetMetric(
+                  label: 'Last update',
+                  value: formatDeliveryTime(
+                    context,
+                    locationController.lastRecordedLocation?.recordedAt ??
+                        delivery.lastUpdatedAt,
+                  ),
+                ),
+              ),
+              if (routeController.route case final route?) ...[
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: _SheetMetric(
+                    key: const ValueKey('live-route-summary'),
+                    label: 'ETA & distance',
+                    value: _routeSummary(route),
+                  ),
+                ),
+              ],
+            ],
           ),
+          if (routeController.isRefreshing) ...[
+            const SizedBox(height: AppSpacing.xs),
+            const LinearProgressIndicator(
+              key: ValueKey('navigation-route-refreshing'),
+              minHeight: 2,
+            ),
+          ],
           const SizedBox(height: AppSpacing.sm),
           _LocationTrackingBanner(
             controller: locationController,
@@ -954,6 +1243,14 @@ class _DeliveryNavigationSheet extends StatelessWidget {
   }
 
   static String _shortArea(String value) => value.split(',').first;
+
+  static String _routeSummary(NavigationRoute route) {
+    final minutes = (route.durationSeconds / 60).ceil().clamp(1, 999);
+    final distance = route.distanceMeters < 1000
+        ? '${route.distanceMeters.round()} m'
+        : '${(route.distanceMeters / 1000).toStringAsFixed(1)} km';
+    return '$minutes min • $distance';
+  }
 }
 
 class _LocationTrackingBanner extends StatelessWidget {
@@ -1291,7 +1588,7 @@ class _SheetRouteRow extends StatelessWidget {
 }
 
 class _SheetMetric extends StatelessWidget {
-  const _SheetMetric({required this.label, required this.value});
+  const _SheetMetric({required this.label, required this.value, super.key});
 
   final String label;
   final String value;

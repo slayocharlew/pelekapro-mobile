@@ -26,7 +26,7 @@ Laravel Reverb broadcasts accepted current state
 - collecting login credentials and sending them only to the login endpoint;
 - keeping the returned bearer token in Android secure storage;
 - rendering only the deliveries returned for the authenticated driver;
-- submitting user-entered proof, PIN, collection, and failure information;
+- submitting user-entered proof, collection, and failure information;
 - starting GPS only after a successful start-delivery response;
 - sending GPS samples approximately every five seconds;
 - stopping GPS immediately after delivery, failure, cancellation, logout, an
@@ -53,8 +53,8 @@ server-controlled ownership fields.
 
 Pickup location is configured by the business, not by the driver. An authorized
 business owner can complete the main shop location from the portal at
-`/portal/settings`; the page uses the active business branch and an
-OpenStreetMap pin to save the written address and coordinates. The portal also
+`/portal/settings`; the page uses the active business branch and Google Maps
+JavaScript API to save the written address and coordinates. The portal also
 allows a super admin to register a business without a map pin so the owner can
 complete it later.
 
@@ -76,6 +76,48 @@ the pickup coordinates may be `null`; the owner should complete Business
 Settings before dispatching deliveries that require an exact pickup point. No
 new mobile endpoint is required for this behavior—the existing driver delivery
 resources already return the resolved `pickup` object.
+
+### Web and Android map separation
+
+The Laravel portal and customer tracking PWA now render their browser maps with
+Google Maps JavaScript API. This browser-only provider change does not alter a
+mobile API endpoint, request body, response resource, delivery-state rule, or
+GPS-ingestion contract.
+
+The existing Google browser API key and JavaScript Map ID belong only to the
+Laravel web application. They must never be copied into Flutter, reused as an
+Android credential, or recovered from the Laravel `.env` file. Google keys,
+Sanctum tokens, Map IDs, and Reverb secrets must not be placed directly in Dart
+source.
+
+The current Flutter navigation implementation remains independently configured
+with OpenStreetMap tiles and an OSRM-compatible routing service. If the embedded
+Flutter map is migrated to Google Maps later, create a separate Android key and
+restrict it to all of the following:
+
+- Android package name `tz.co.pelekapro.mobile`;
+- the real debug and release SHA-1 signing-certificate fingerprints; and
+- Maps SDK for Android only.
+
+Use an Android-specific Map ID as well if the future native map configuration
+requires one. Never reuse the browser JavaScript Map ID. No Android Google Maps
+SDK, key, or Map ID is configured by this contract update.
+
+Changing the map renderer does not replace the authoritative tracking path:
+
+```text
+Flutter GPS
+        ↓
+Laravel location API
+        ↓
+MySQL permanent tracking history
+        ↓
+Redis temporary latest location
+        ↓
+Laravel Reverb
+        ↓
+Customer/business live tracking
+```
 
 ## 2. Base URL and request conventions
 
@@ -140,7 +182,7 @@ All routes except login use both `auth:sanctum` and `active.api.user`.
 | `GET` | `/api/driver/deliveries/{delivery}` | Render detail and available failure reasons | Enforce assignment/business ownership |
 | `POST` | `/api/driver/deliveries/{delivery}/start` | Start workflow, then GPS after success | Atomically start delivery and tracking session |
 | `POST` | `/api/driver/deliveries/{delivery}/locations` | Submit device GPS samples | Persist history and conditionally update/broadcast live state |
-| `POST` | `/api/driver/deliveries/{delivery}/deliver` | Submit delivery outcome, proof, and collection | Validate PIN/payment and atomically finish tracking |
+| `POST` | `/api/driver/deliveries/{delivery}/deliver` | Submit delivery outcome, proof, and collection | Validate payment and atomically finish tracking |
 | `POST` | `/api/driver/deliveries/{delivery}/fail` | Submit an allowed failure reason and optional proof | Atomically record failure and finish tracking |
 | `GET` | `/api/deliveries/{delivery}/tracking-locations` | Optional authorized history/diagnostics | Return paginated MySQL history, never public live state |
 
@@ -191,7 +233,7 @@ Other failures normally use:
 | `403` | Authenticated but account/action/delivery is forbidden | Stop sensitive action and show a safe denial |
 | `404` | Route-model delivery does not exist or is unavailable | Remove stale navigation and refresh assigned list |
 | `409` | Delivery state transition or tracking state is no longer valid | Stop GPS when relevant and refetch delivery |
-| `422` | Invalid credentials, fields, PIN, payment, timestamp, or rule | Render field errors without discarding valid form input |
+| `422` | Invalid credentials, fields, payment, timestamp, or rule | Render field errors without discarding valid form input |
 | `429` | Rate limit exceeded | Back off; never retry in a tight loop |
 | `500+` | Temporary server failure | Preserve safe local UI state and offer a controlled retry |
 
@@ -401,7 +443,6 @@ models should parse them deliberately instead of assuming JSON numbers.
     }
   },
   "requirements": {
-    "pin_required": true,
     "proof_supported": true,
     "available_proof_types": ["photo", "signature"]
   },
@@ -426,7 +467,7 @@ The detail response additionally includes active failure reasons:
 }
 ```
 
-The resource intentionally excludes the delivery PIN, public tracking token,
+The resource intentionally excludes the public tracking token,
 proof filesystem paths, tracking-session internals, Redis keys, authentication
 credentials, and reconciliation details.
 
@@ -605,9 +646,11 @@ POST /api/driver/deliveries/{delivery}/deliver
 Use `multipart/form-data` when sending `proof_file`. JSON is acceptable when no
 file is sent.
 
+Delivery PIN has been removed from the backend contract. Flutter must not
+request, display, store, or submit a `delivery_pin` field.
+
 | Field | Required | Rules |
 |---|---|---|
-| `delivery_pin` | When `requirements.pin_required` is true | String, max 10; compared by server |
 | `receiver_name` | No | String, max 255 |
 | `receiver_phone` | No | String, max 255 |
 | `proof_type` | With proof file | `photo` or `signature` |
@@ -729,7 +772,7 @@ Recommended API-client behavior:
 5. Convert backend field errors into form-field messages.
 6. Clear secure authentication and stop GPS on `401`.
 7. Refetch delivery state after transition timeouts or `409`.
-8. Never log full requests for login, PIN, proof, location, or bearer tokens.
+8. Never log full requests for login, proof, location, or bearer tokens.
 
 ## 14. Current API gaps—do not invent client behavior
 
@@ -761,7 +804,6 @@ rejected because tracking is no longer active.
 - Never put bearer tokens in URLs.
 - Never use a public customer tracking token for driver authentication.
 - Never submit `business_id`, `driver_id`, or `tracking_session_id`.
-- Never expose delivery PINs after they are submitted.
 - Never persist proof paths or Redis information in Flutter.
 - Stop GPS whenever authoritative tracking becomes inactive.
 - Do not retry state-changing actions blindly.

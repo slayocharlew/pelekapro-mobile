@@ -3,6 +3,7 @@ import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/auth_flow.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class PelekaProApp extends StatelessWidget {
@@ -11,11 +12,15 @@ class PelekaProApp extends StatelessWidget {
     this.authRepository,
     this.deliveryRepository,
     this.deviceLocationSource,
+    this.navigationRouteService,
+    this.loadMapTiles = true,
   });
 
   final AuthRepository? authRepository;
   final DeliveryRepository? deliveryRepository;
   final DeviceLocationSource? deviceLocationSource;
+  final NavigationRouteService? navigationRouteService;
+  final bool loadMapTiles;
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +32,8 @@ class PelekaProApp extends StatelessWidget {
         repository: authRepository,
         deliveryRepository: deliveryRepository,
         deviceLocationSource: deviceLocationSource,
+        navigationRouteService: navigationRouteService,
+        loadMapTiles: loadMapTiles,
       ),
     );
   }

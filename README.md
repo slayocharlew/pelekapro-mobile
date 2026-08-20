@@ -109,6 +109,7 @@ The authentication code is separated by responsibility under `lib/features/auth`
 - `lib/features/deliveries/data` fetches and validates assigned-list and selected-delivery responses.
 - `lib/features/deliveries/domain` contains the server-authoritative delivery models, repository contract, statuses, and failures.
 - `lib/features/deliveries/presentation` contains assigned-list state, server-to-UI mapping, and the approved delivery workflow screens.
+- `lib/features/navigation` owns real map-route models, OSRM parsing, route refresh policy, and navigation state.
 - `lib/shared/widgets` contains the PelekaPro brand mark, card, button, and status components.
 - `lib/core/network` contains the shared JSON API client.
 - `lib/core/storage` stores session credentials with Android secure storage.
@@ -127,14 +128,28 @@ The list response is currently unpaginated and newest-first. The app does not ma
 
 Start Delivery consumes `POST /api/driver/deliveries/{delivery}/start` without a request body. The button is disabled while submitting, navigation opens only after Laravel returns the full delivery with `on_the_way`, and the selected delivery is replaced with that server response. A failed or `409` response triggers a detail refetch before another attempt, preventing a blind duplicate start after an ambiguous timeout or conflict. A `401` clears the secure session and returns to login.
 
-GPS does not start yet. The remaining outcome actions still do not change Laravel state, collect location, open the camera, upload proof, or record money. The complete downstream UI journey remains available for continued development:
+After Laravel starts a delivery, foreground GPS starts with Android permission and service checks. The app submits the documented location sample approximately every five seconds, follows the rider on the map, pauses when the app is covered, and reconciles Laravel state when connectivity or foreground activity returns.
+
+The navigation view uses the real `dropoff.latitude` and `dropoff.longitude` returned by Laravel. It never substitutes a customer name or written address for geographic coordinates. OpenStreetMap tiles provide the visible map, while an OSRM-compatible routing service supplies road geometry, distance, duration, and the next maneuver. If a drop-off pin, GPS fix, or routing response is unavailable, the app shows that limitation and does not draw a fabricated route.
+
+Configure development routing separately from the PelekaPro API:
+
+```bash
+flutter run \
+  --dart-define=API_BASE_URL=http://127.0.0.1:8000 \
+  --dart-define=ROUTING_BASE_URL=https://router.project-osrm.org
+```
+
+`router.project-osrm.org` is a best-effort demo service suitable for development verification, not a production SLA. Configure a controlled OSRM deployment or supported provider for production. `MAP_TILE_URL` can override the default HTTPS OpenStreetMap tile template. The app identifies itself as `tz.co.pelekapro.mobile`, displays OpenStreetMap/OSRM attribution, and does not prefetch tiles.
+
+Mark Delivered consumes `POST /api/driver/deliveries/{delivery}/deliver`, including optional photo proof and the actual collected amount when Laravel requires collection. The current backend contract has no delivery PIN field, so the mobile app neither requests nor submits one. Report Issue remains the next local-only outcome workflow:
 
 - assigned deliveries → details → start → active navigation;
-- active navigation → mark delivered → delivered result;
+- active navigation → mark delivered API → delivered result;
 - active navigation → report issue → failed result;
 - either result → back to deliveries.
 
-Delivered and failed transitions update only presentation memory and are replaced by the next server refresh. No deliver, fail, GPS, tracking-history, upload, or Reverb endpoint is called by those actions. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions. The custom navigation composition follows an OpenStreetMap visual direction with a top-down motorcycle marker; no map, routing, location, or navigation SDK is connected yet.
+The failed transition still updates only presentation memory and is replaced by the next server refresh. No fail, tracking-history, or Reverb endpoint is called yet. The UI does not invent accept, mark-arrived, cancel, assign, or unassign actions.
 
 The approved screenshots remain in `UI/` as design references. That directory is deliberately absent from `pubspec.yaml` assets and is not bundled into the Android application.
 
@@ -178,6 +193,12 @@ Implemented:
 - Assigned deliveries through `GET /api/driver/deliveries`
 - Selected delivery and active failure reasons through `GET /api/driver/deliveries/{delivery}`
 - Start delivery through `POST /api/driver/deliveries/{delivery}/start`
+- Foreground device location through `POST /api/driver/deliveries/{delivery}/locations`
+- Real OpenStreetMap rendering with the rider and server-provided drop-off coordinates
+- Configurable OSRM road geometry, ETA, distance, and maneuver guidance
+- Delivery completion through `POST /api/driver/deliveries/{delivery}/deliver`
+- Optional JPEG/PNG/WebP proof capture and multipart upload
+- PIN-free completion aligned with the current Laravel schema
 - Assigned-list loading, empty, retry, refresh, and session-expiry handling
 - Delivery-detail loading, retry, validation, and session-expiry handling
 - Duplicate-start protection and ambiguous-start reconciliation
@@ -186,11 +207,10 @@ Implemented:
 
 Next phases:
 
-1. Add foreground GPS collection and submissions approximately every five seconds
-2. Connect proof capture and upload
-3. Connect delivered, failed, PIN, and payment workflows
-4. Stop GPS immediately on delivered, failed, or cancelled
-5. Connect authorized tracking history
-6. Consume logout-all when required
-7. Add Reverb integration where required
-8. Add production Android signing and configuration
+1. Connect the failed-delivery API and optional failure proof
+2. Verify terminal GPS shutdown for every authoritative failed/cancelled response
+3. Deploy production-grade OSM-derived tiles and motorcycle-aware routing
+4. Connect authorized tracking history
+5. Consume logout-all when required
+6. Add Reverb integration where required
+7. Add production Android signing and configuration

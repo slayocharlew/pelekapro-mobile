@@ -2,7 +2,6 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_proof_photo
 
 class DeliveryCompletionRequest {
   const DeliveryCompletionRequest({
-    this.deliveryPin,
     this.receiverName,
     this.receiverPhone,
     this.proofPhoto,
@@ -14,7 +13,6 @@ class DeliveryCompletionRequest {
     this.deliveredLongitude,
   });
 
-  final String? deliveryPin;
   final String? receiverName;
   final String? receiverPhone;
   final DeliveryProofPhoto? proofPhoto;
@@ -27,7 +25,6 @@ class DeliveryCompletionRequest {
 
   Map<String, dynamic> toJson() {
     return {
-      'delivery_pin': ?_trimmed(deliveryPin),
       'receiver_name': ?_trimmed(receiverName),
       'receiver_phone': ?_trimmed(receiverPhone),
       'proof_note': ?_trimmed(proofNote),

@@ -135,10 +135,7 @@ void main() {
         tokenStorage: storage,
         now: _now,
       );
-      const request = DeliveryCompletionRequest(
-        deliveryPin: '123456',
-        collectedAmount: 25000,
-      );
+      const request = DeliveryCompletionRequest(collectedAmount: 25000);
 
       final result = await repository.completeDelivery(101, request);
 
@@ -158,7 +155,7 @@ void main() {
             message: 'Validation failed',
             statusCode: 422,
             fieldErrors: const {
-              'delivery_pin': ['The delivery PIN is incorrect.'],
+              'collected_amount': ['The collected amount is required.'],
             },
           ),
         );
@@ -176,18 +173,15 @@ void main() {
         await expectLater(
           repository.completeDelivery(
             101,
-            const DeliveryCompletionRequest(
-              deliveryPin: '000000',
-              collectedAmount: 25000,
-            ),
+            const DeliveryCompletionRequest(collectedAmount: 25000),
           ),
           throwsA(
             isA<DeliveryFailure>()
                 .having((failure) => failure.statusCode, 'statusCode', 422)
                 .having(
-                  (failure) => failure.fieldError('delivery_pin'),
-                  'PIN error',
-                  'The delivery PIN is incorrect.',
+                  (failure) => failure.fieldError('collected_amount'),
+                  'collected amount error',
+                  'The collected amount is required.',
                 ),
           ),
         );

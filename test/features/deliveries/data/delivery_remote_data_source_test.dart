@@ -47,7 +47,7 @@ void main() {
       expect(delivery.items.single.amount, 25000);
       expect(delivery.payment.amountToCollect, 25000);
       expect(delivery.payment.record?.status, 'pending');
-      expect(delivery.requirements.pinRequired, isTrue);
+      expect(delivery.requirements.proofSupported, isTrue);
       expect(
         delivery.timestamps.assignedAt,
         DateTime.parse('2026-08-17T07:00:00.000000Z'),
@@ -229,7 +229,6 @@ void main() {
         final completed = await dataSource.completeDelivery(
           101,
           const DeliveryCompletionRequest(
-            deliveryPin: '123456',
             collectedAmount: 25000,
             deliveredLatitude: -6.7924,
             deliveredLongitude: 39.2083,
@@ -245,7 +244,6 @@ void main() {
           'Bearer stored-driver-token',
         );
         expect(jsonDecode(capturedRequest.body), {
-          'delivery_pin': '123456',
           'collected_amount': 25000.0,
           'delivered_latitude': -6.7924,
           'delivered_longitude': 39.2083,
@@ -283,7 +281,6 @@ void main() {
       final completed = await dataSource.completeDelivery(
         101,
         DeliveryCompletionRequest(
-          deliveryPin: '123456',
           collectedAmount: 25000,
           proofPhoto: DeliveryProofPhoto(
             fileName: 'proof.jpg',
@@ -297,8 +294,7 @@ void main() {
       final contentType = capturedRequest.headers['content-type'];
       final multipartBody = latin1.decode(capturedRequest.bodyBytes);
       expect(contentType, startsWith('multipart/form-data; boundary='));
-      expect(multipartBody, contains('name="delivery_pin"'));
-      expect(multipartBody, contains('123456'));
+      expect(multipartBody, isNot(contains('name="delivery_pin"')));
       expect(multipartBody, contains('name="collected_amount"'));
       expect(multipartBody, contains('25000.0'));
       expect(multipartBody, contains('name="proof_type"'));
@@ -608,7 +604,6 @@ const _assignedDeliveriesResponse = {
         },
       },
       'requirements': {
-        'pin_required': true,
         'proof_supported': true,
         'available_proof_types': ['photo', 'signature'],
       },

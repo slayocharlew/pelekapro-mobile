@@ -52,6 +52,7 @@ class ForegroundLocationController extends ChangeNotifier {
   ForegroundLocationStatus _status = ForegroundLocationStatus.idle;
   StreamSubscription<DeliveryLocationSample>? _subscription;
   DeliveryLocationSample? _pendingSample;
+  DeliveryLocationSample? _latestDeviceLocation;
   RecordedDeliveryLocation? _lastRecordedLocation;
   DateTime? _lastAttemptAt;
   DateTime? _backoffUntil;
@@ -65,6 +66,7 @@ class ForegroundLocationController extends ChangeNotifier {
   bool _disposed = false;
 
   ForegroundLocationStatus get status => _status;
+  DeliveryLocationSample? get latestDeviceLocation => _latestDeviceLocation;
   RecordedDeliveryLocation? get lastRecordedLocation => _lastRecordedLocation;
   double? get heading => _heading;
   String? get message => _message;
@@ -133,7 +135,9 @@ class ForegroundLocationController extends ChangeNotifier {
     if (sample.heading case final heading?) {
       _heading = heading;
     }
+    _latestDeviceLocation = sample;
     _pendingSample = sample;
+    notifyListeners();
     unawaited(_drain(generation));
   }
 

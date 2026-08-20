@@ -125,7 +125,6 @@ DriverDelivery driverDeliveryFixture({
       ),
     ),
     requirements: const DeliveryRequirements(
-      pinRequired: true,
       proofSupported: true,
       availableProofTypes: ['photo', 'signature'],
     ),
