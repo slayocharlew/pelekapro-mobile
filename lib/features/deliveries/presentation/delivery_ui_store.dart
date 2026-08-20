@@ -81,14 +81,6 @@ class DeliveryUiStore extends ChangeNotifier {
     return _deliveries.firstWhere((delivery) => delivery.id == id);
   }
 
-  void previewMarkDelivered(int id) {
-    _replaceStatus(id, DeliveryStatus.delivered);
-    if (_activeDeliveryId == id) {
-      _activeDeliveryId = null;
-    }
-    notifyListeners();
-  }
-
   void previewReportFailed(int id) {
     _replaceStatus(id, DeliveryStatus.failed);
     if (_activeDeliveryId == id) {

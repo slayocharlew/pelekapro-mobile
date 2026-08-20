@@ -6,7 +6,9 @@ import 'package:http/testing.dart';
 import 'package:pelekapro_mobile/core/network/api_client.dart';
 import 'package:pelekapro_mobile/core/network/api_exception.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_completion_request.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_proof_photo.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 
 void main() {
@@ -192,6 +194,144 @@ void main() {
       delivery['id'] = 999;
       await expectLater(
         dataSource.startDelivery(101, 'token'),
+        throwsA(isA<ApiException>()),
+      );
+    });
+
+    test(
+      'posts documented completion JSON without server-owned fields',
+      () async {
+        late http.Request capturedRequest;
+        final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+        final delivery =
+            (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+        delivery['status'] = 'delivered';
+        final timestamps = delivery['timestamps'] as Map<String, dynamic>;
+        timestamps['started_at'] = '2026-08-17T08:15:00.000000Z';
+        timestamps['delivered_at'] = '2026-08-17T08:45:00.000000Z';
+        final dataSource = DeliveryRemoteDataSource(
+          ApiClient(
+            baseUri: Uri.parse('https://api.pelekapro.example'),
+            client: MockClient((request) async {
+              capturedRequest = request;
+              return http.Response(
+                jsonEncode({
+                  'success': true,
+                  'message': 'Delivery completed successfully',
+                  'data': delivery,
+                }),
+                200,
+              );
+            }),
+          ),
+        );
+
+        final completed = await dataSource.completeDelivery(
+          101,
+          const DeliveryCompletionRequest(
+            deliveryPin: '123456',
+            collectedAmount: 25000,
+            deliveredLatitude: -6.7924,
+            deliveredLongitude: 39.2083,
+          ),
+          'stored-driver-token',
+        );
+
+        expect(capturedRequest.method, 'POST');
+        expect(capturedRequest.url.path, '/api/driver/deliveries/101/deliver');
+        expect(capturedRequest.headers['content-type'], 'application/json');
+        expect(
+          capturedRequest.headers['authorization'],
+          'Bearer stored-driver-token',
+        );
+        expect(jsonDecode(capturedRequest.body), {
+          'delivery_pin': '123456',
+          'collected_amount': 25000.0,
+          'delivered_latitude': -6.7924,
+          'delivered_longitude': 39.2083,
+        });
+        expect(capturedRequest.body, isNot(contains('expected_amount')));
+        expect(capturedRequest.body, isNot(contains('payment_method')));
+        expect(capturedRequest.body, isNot(contains('delivery_id')));
+        expect(completed.id, 101);
+        expect(completed.status, DeliveryStatus.delivered);
+      },
+    );
+
+    test('posts optional proof photo as documented multipart data', () async {
+      late http.Request capturedRequest;
+      final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+      final delivery =
+          (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+      delivery['status'] = 'delivered';
+      final timestamps = delivery['timestamps'] as Map<String, dynamic>;
+      timestamps['started_at'] = '2026-08-17T08:15:00.000000Z';
+      timestamps['delivered_at'] = '2026-08-17T08:45:00.000000Z';
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient((request) async {
+            capturedRequest = request;
+            return http.Response(
+              jsonEncode({'success': true, 'data': delivery}),
+              200,
+            );
+          }),
+        ),
+      );
+
+      final completed = await dataSource.completeDelivery(
+        101,
+        DeliveryCompletionRequest(
+          deliveryPin: '123456',
+          collectedAmount: 25000,
+          proofPhoto: DeliveryProofPhoto(
+            fileName: 'proof.jpg',
+            mimeType: 'image/jpeg',
+            bytes: const [0xFF, 0xD8, 0xFF, 0xD9],
+          ),
+        ),
+        'stored-driver-token',
+      );
+
+      final contentType = capturedRequest.headers['content-type'];
+      final multipartBody = latin1.decode(capturedRequest.bodyBytes);
+      expect(contentType, startsWith('multipart/form-data; boundary='));
+      expect(multipartBody, contains('name="delivery_pin"'));
+      expect(multipartBody, contains('123456'));
+      expect(multipartBody, contains('name="collected_amount"'));
+      expect(multipartBody, contains('25000.0'));
+      expect(multipartBody, contains('name="proof_type"'));
+      expect(multipartBody, contains('photo'));
+      expect(multipartBody, contains('name="proof_file"'));
+      expect(multipartBody, contains('filename="proof.jpg"'));
+      expect(multipartBody, isNot(contains('expected_amount')));
+      expect(multipartBody, isNot(contains('payment_method')));
+      expect(completed.status, DeliveryStatus.delivered);
+    });
+
+    test('rejects a completion response that is not delivered', () async {
+      final payload = jsonDecode(jsonEncode(_assignedDeliveriesResponse));
+      final delivery =
+          (payload['data'] as List<Object?>).single as Map<String, dynamic>;
+      final dataSource = DeliveryRemoteDataSource(
+        ApiClient(
+          baseUri: Uri.parse('https://api.pelekapro.example'),
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'success': true, 'data': delivery}),
+              200,
+            ),
+          ),
+        ),
+      );
+
+      await expectLater(
+        dataSource.completeDelivery(
+          101,
+          const DeliveryCompletionRequest(),
+          'token',
+        ),
         throwsA(isA<ApiException>()),
       );
     });

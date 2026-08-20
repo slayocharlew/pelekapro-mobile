@@ -1,9 +1,11 @@
 import 'package:pelekapro_mobile/core/network/api_client.dart';
 import 'package:pelekapro_mobile/core/network/api_exception.dart';
+import 'package:pelekapro_mobile/core/network/multipart_file_data.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/models/driver_delivery_details_mapper.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/models/driver_delivery_mapper.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/models/recorded_delivery_location_mapper.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_completion_request.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
@@ -110,6 +112,46 @@ class DeliveryRemoteDataSource {
 
     try {
       return RecordedDeliveryLocationMapper.fromJson(data);
+    } on FormatException {
+      throw ApiException.invalidResponse();
+    }
+  }
+
+  Future<DriverDelivery> completeDelivery(
+    int deliveryId,
+    DeliveryCompletionRequest request,
+    String accessToken,
+  ) async {
+    final proofPhoto = request.proofPhoto;
+    final payload = proofPhoto == null
+        ? await _apiClient.postJson(
+            '/api/driver/deliveries/$deliveryId/deliver',
+            bearerToken: accessToken,
+            body: request.toJson(),
+          )
+        : await _apiClient.postMultipart(
+            '/api/driver/deliveries/$deliveryId/deliver',
+            bearerToken: accessToken,
+            fields: request.toMultipartFields(),
+            file: MultipartFileData(
+              fieldName: 'proof_file',
+              fileName: proofPhoto.fileName,
+              bytes: proofPhoto.bytes,
+            ),
+          );
+    final data = payload['data'];
+
+    if (payload['success'] != true || data is! Map<String, dynamic>) {
+      throw ApiException.invalidResponse();
+    }
+
+    try {
+      final delivery = DriverDeliveryMapper.fromJson(data);
+      if (delivery.id != deliveryId ||
+          delivery.status != DeliveryStatus.delivered) {
+        throw const FormatException('Unexpected completed delivery.');
+      }
+      return delivery;
     } on FormatException {
       throw ApiException.invalidResponse();
     }

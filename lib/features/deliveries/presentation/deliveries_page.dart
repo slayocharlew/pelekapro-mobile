@@ -464,17 +464,29 @@ class _DeliveryCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Row(
             children: [
-              const Icon(
-                Icons.schedule_rounded,
-                size: 18,
-                color: AppColors.mutedInk,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.schedule_rounded,
+                      size: 18,
+                      color: AppColors.mutedInk,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        formatDeliveryTime(context, delivery.assignedAt),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.mutedInk,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                formatDeliveryTime(context, delivery.assignedAt),
-                style: const TextStyle(color: AppColors.mutedInk, fontSize: 13),
-              ),
-              const Spacer(),
               TextButton(
                 key: ValueKey('view-delivery-${delivery.id}'),
                 onPressed: onOpen,

@@ -2,6 +2,7 @@ import 'package:pelekapro_mobile/core/network/api_exception.dart';
 import 'package:pelekapro_mobile/core/storage/token_storage.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_completion_request.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
@@ -56,6 +57,19 @@ class DeliveryRepositoryImpl implements DeliveryRepository {
     );
   }
 
+  @override
+  Future<DriverDelivery> completeDelivery(
+    int deliveryId,
+    DeliveryCompletionRequest request,
+  ) {
+    _validateDeliveryId(deliveryId);
+
+    return _withAccessToken(
+      (accessToken) =>
+          remoteDataSource.completeDelivery(deliveryId, request, accessToken),
+    );
+  }
+
   void _validateDeliveryId(int deliveryId) {
     if (deliveryId <= 0) {
       throw const DeliveryFailure(
@@ -99,6 +113,7 @@ class DeliveryRepositoryImpl implements DeliveryRepository {
       throw DeliveryFailure(
         message: error.message,
         statusCode: error.statusCode,
+        fieldErrors: error.fieldErrors,
       );
     }
   }

@@ -49,6 +49,34 @@ Laravel Reverb broadcasts accepted current state
 Flutter must never connect directly to MySQL or Redis and must never submit
 server-controlled ownership fields.
 
+### Business branch pickup location
+
+Pickup location is configured by the business, not by the driver. An authorized
+business owner can complete the main shop location from the portal at
+`/portal/settings`; the page uses the active business branch and an
+OpenStreetMap pin to save the written address and coordinates. The portal also
+allows a super admin to register a business without a map pin so the owner can
+complete it later.
+
+When a delivery has an active `branch_id` belonging to the delivery's business,
+Laravel resolves the pickup fields from that branch when creating or updating
+the delivery:
+
+```text
+branch.name       → pickup.name
+branch.phone      → pickup.phone
+branch.address    → pickup.address
+branch.latitude   → pickup.latitude
+branch.longitude  → pickup.longitude
+```
+
+These values are server-authoritative. A mobile client must not attempt to
+replace them with device input. If the branch has not yet been given a map pin,
+the pickup coordinates may be `null`; the owner should complete Business
+Settings before dispatching deliveries that require an exact pickup point. No
+new mobile endpoint is required for this behavior—the existing driver delivery
+resources already return the resolved `pickup` object.
+
 ## 2. Base URL and request conventions
 
 The Flutter project reads its backend origin from the compile-time
@@ -59,10 +87,10 @@ flutter run --dart-define=API_BASE_URL=http://MAC_LAN_IP:8000
 ```
 
 The API prefix is `/api`, so a configured base URL of
-`http://MAC_LAN_IP:8000` produces endpoints such as:
+`http://192.168.1.20:8000` produces endpoints such as:
 
 ```text
-http://MAC_LAN_IP:8000/api/auth/login
+http://192.168.1.20:8000/api/auth/login
 ```
 
 For a physical phone, `127.0.0.1` refers to the phone, not the Mac. During local
@@ -402,6 +430,11 @@ The resource intentionally excludes the delivery PIN, public tracking token,
 proof filesystem paths, tracking-session internals, Redis keys, authentication
 credentials, and reconciliation details.
 
+The `pickup` object is the delivery's server-resolved business-branch pickup
+point. Treat its coordinates as nullable and display the written address when a
+pin has not yet been configured. Do not ask the driver to edit pickup
+coordinates in the mobile app.
+
 ### Real delivery statuses
 
 ```text
@@ -679,6 +712,7 @@ use the latest MySQL history point to claim that the driver is currently live.
 | Driver login | `POST /api/auth/login`, then validate role |
 | Assigned deliveries | `GET /api/driver/deliveries` |
 | Delivery details | `GET /api/driver/deliveries/{delivery}` |
+| Pickup information | Read `pickup` from the assigned-delivery response; do not submit replacement branch coordinates |
 | Start action | `POST .../{delivery}/start` |
 | Foreground tracking | `POST .../{delivery}/locations` every ~5 seconds |
 | Delivery completion form | `POST .../{delivery}/deliver` |

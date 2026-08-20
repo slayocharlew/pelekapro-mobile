@@ -4,6 +4,7 @@ import 'package:pelekapro_mobile/core/storage/secure_token_storage.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_repository_impl.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_completion_request.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
@@ -58,6 +59,17 @@ class _UnconfiguredDeliveryRepository implements DeliveryRepository {
   Future<RecordedDeliveryLocation> submitLocation(
     int deliveryId,
     DeliveryLocationSample sample,
+  ) {
+    throw const DeliveryFailure(
+      message:
+          'The API connection is not configured. Start the app with API_BASE_URL set for your PelekaPro server.',
+    );
+  }
+
+  @override
+  Future<DriverDelivery> completeDelivery(
+    int deliveryId,
+    DeliveryCompletionRequest request,
   ) {
     throw const DeliveryFailure(
       message:

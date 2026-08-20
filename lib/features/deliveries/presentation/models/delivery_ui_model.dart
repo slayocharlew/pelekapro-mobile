@@ -16,12 +16,16 @@ class DeliveryUiModel {
     required this.itemCount,
     required this.itemDescription,
     required this.amountToCollect,
+    required this.expectedCollectionAmount,
     required this.paymentMethod,
+    required this.collectionMethod,
+    required this.paymentCollectionRequired,
     required this.note,
     required this.status,
     required this.lastUpdatedAt,
     required this.pinRequired,
     required this.proofSupported,
+    required this.photoProofSupported,
   });
 
   factory DeliveryUiModel.fromDomain(DriverDelivery delivery) {
@@ -44,6 +48,16 @@ class DeliveryUiModel {
       delivery.dropoff.address,
       delivery.customerAddress?.street,
     ], fallback: 'Drop-off details unavailable');
+    final paymentRecord = delivery.payment.record;
+    final collectionMethod =
+        paymentRecord?.method ??
+        _normalizedPaymentMethod(delivery.payment.method);
+    final expectedCollection =
+        paymentRecord?.expectedAmount ?? delivery.payment.amountToCollect;
+    final paymentCollectionRequired =
+        expectedCollection > 0 &&
+        collectionMethod != 'none' &&
+        collectionMethod != 'prepaid';
 
     return DeliveryUiModel(
       id: delivery.id,
@@ -61,7 +75,10 @@ class DeliveryUiModel {
           ? 'Item details unavailable'
           : itemNames.join(', '),
       amountToCollect: delivery.payment.amountToCollect,
+      expectedCollectionAmount: expectedCollection,
       paymentMethod: _readableApiValue(delivery.payment.method),
+      collectionMethod: _readableApiValue(collectionMethod),
+      paymentCollectionRequired: paymentCollectionRequired,
       note: instruction != null && instruction.isNotEmpty
           ? instruction
           : landmark != null && landmark.isNotEmpty
@@ -71,6 +88,9 @@ class DeliveryUiModel {
       lastUpdatedAt: delivery.timestamps.latest,
       pinRequired: delivery.requirements.pinRequired,
       proofSupported: delivery.requirements.proofSupported,
+      photoProofSupported:
+          delivery.requirements.proofSupported &&
+          delivery.requirements.availableProofTypes.contains('photo'),
     );
   }
 
@@ -87,12 +107,16 @@ class DeliveryUiModel {
   final int itemCount;
   final String itemDescription;
   final double amountToCollect;
+  final double expectedCollectionAmount;
   final String paymentMethod;
+  final String collectionMethod;
+  final bool paymentCollectionRequired;
   final String? note;
   final DeliveryStatus status;
   final DateTime? lastUpdatedAt;
   final bool pinRequired;
   final bool proofSupported;
+  final bool photoProofSupported;
 
   DeliveryUiModel copyWith({DeliveryStatus? status}) {
     return DeliveryUiModel(
@@ -109,12 +133,16 @@ class DeliveryUiModel {
       itemCount: itemCount,
       itemDescription: itemDescription,
       amountToCollect: amountToCollect,
+      expectedCollectionAmount: expectedCollectionAmount,
       paymentMethod: paymentMethod,
+      collectionMethod: collectionMethod,
+      paymentCollectionRequired: paymentCollectionRequired,
       note: note,
       status: status ?? this.status,
       lastUpdatedAt: lastUpdatedAt,
       pinRequired: pinRequired,
       proofSupported: proofSupported,
+      photoProofSupported: photoProofSupported,
     );
   }
 
@@ -192,5 +220,15 @@ class DeliveryUiModel {
 
     final label = words.join(' ');
     return '${label[0].toUpperCase()}${label.substring(1)}';
+  }
+
+  static String _normalizedPaymentMethod(String value) {
+    return switch (value.trim().toLowerCase()) {
+      'mobile_money' => 'mobile_money',
+      'bank' => 'bank',
+      'prepaid' => 'prepaid',
+      'none' => 'none',
+      _ => 'cash',
+    };
   }
 }

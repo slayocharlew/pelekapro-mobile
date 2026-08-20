@@ -10,6 +10,7 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_session.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_user.dart';
 import 'package:pelekapro_mobile/features/auth/domain/driver_profile.dart';
 import 'package:pelekapro_mobile/features/auth/domain/session_restore_result.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_completion_request.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
@@ -459,7 +460,7 @@ void main() {
       expect(deliveryRepository.lastLocationDeliveryId, 101);
       expect(find.text('Live location on'), findsOneWidget);
 
-      final markDelivered = find.byKey(const ValueKey('mark-delivered-local'));
+      final markDelivered = find.byKey(const ValueKey('mark-delivered-api'));
       await tester.scrollUntilVisible(
         markDelivered,
         120,
@@ -647,7 +648,7 @@ void main() {
   });
 
   testWidgets(
-    'delivered journey keeps completion local after the server start',
+    'delivered journey submits the completion API after the server start',
     (tester) async {
       final repository = _authenticatedRepository();
       final deliveryRepository = _FakeDeliveryRepository();
@@ -658,16 +659,20 @@ void main() {
       );
       await _openFirstNavigation(tester);
 
-      await tester.tap(find.byKey(const ValueKey('mark-delivered-local')));
+      await tester.tap(find.byKey(const ValueKey('mark-delivered-api')));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('mark-delivered-screen')),
         findsOneWidget,
       );
       expect(find.text('Proof of delivery'), findsOneWidget);
-      expect(find.text('Cash on delivery'), findsOneWidget);
+      expect(find.text('Cash'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('confirm-delivered-local')));
+      await tester.enterText(
+        find.byKey(const ValueKey('delivery-pin-input')),
+        '123456',
+      );
+      await tester.tap(find.byKey(const ValueKey('confirm-delivered-api')));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('delivered-result-screen')),
@@ -684,8 +689,67 @@ void main() {
       expect(deliveryRepository.fetchCalls, 1);
       expect(deliveryRepository.detailFetchCalls, 1);
       expect(deliveryRepository.startCalls, 1);
+      expect(deliveryRepository.completionCalls, 1);
+      expect(deliveryRepository.lastCompletedDeliveryId, 101);
+      expect(deliveryRepository.lastCompletionRequest?.deliveryPin, '123456');
+      expect(deliveryRepository.lastCompletionRequest?.collectedAmount, 25000);
+      expect(deliveryRepository.lastCompletionRequest?.proofPhoto, isNull);
     },
   );
+
+  testWidgets('completion requires the PIN before calling Laravel', (
+    tester,
+  ) async {
+    final deliveryRepository = _FakeDeliveryRepository();
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+    await _openFirstNavigation(tester);
+
+    await tester.tap(find.byKey(const ValueKey('mark-delivered-api')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('confirm-delivered-api')));
+    await tester.pump();
+
+    expect(find.text('Enter the delivery PIN.'), findsOneWidget);
+    expect(deliveryRepository.completionCalls, 0);
+    expect(find.byKey(const ValueKey('mark-delivered-screen')), findsOneWidget);
+  });
+
+  testWidgets('completion keeps form values after server validation', (
+    tester,
+  ) async {
+    final deliveryRepository = _FakeDeliveryRepository(
+      completionFailure: const DeliveryFailure(
+        message: 'Validation failed',
+        statusCode: 422,
+        fieldErrors: {
+          'delivery_pin': ['The delivery PIN is incorrect.'],
+        },
+      ),
+    );
+    await _pumpApp(
+      tester,
+      repository: _authenticatedRepository(),
+      deliveryRepository: deliveryRepository,
+    );
+    await _openFirstNavigation(tester);
+
+    await tester.tap(find.byKey(const ValueKey('mark-delivered-api')));
+    await tester.pumpAndSettle();
+    final pinField = find.byKey(const ValueKey('delivery-pin-input'));
+    await tester.enterText(pinField, '000000');
+    await tester.tap(find.byKey(const ValueKey('confirm-delivered-api')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('mark-delivered-error')), findsOneWidget);
+    expect(find.text('The delivery PIN is incorrect.'), findsOneWidget);
+    expect(tester.widget<TextField>(pinField).controller?.text, '000000');
+    expect(deliveryRepository.completionCalls, 1);
+    expect(find.byKey(const ValueKey('delivered-result-screen')), findsNothing);
+  });
 
   testWidgets('failed outcome remains local for an active delivery', (
     tester,
@@ -929,7 +993,7 @@ void main() {
           : null,
     );
 
-    final markDelivered = find.byKey(const ValueKey('mark-delivered-local'));
+    final markDelivered = find.byKey(const ValueKey('mark-delivered-api'));
     final navigationSheet = find.byKey(
       const ValueKey('active-navigation-sheet-list'),
     );
@@ -1110,6 +1174,7 @@ class _FakeDeliveryRepository implements DeliveryRepository {
     this.startFailure,
     this.startCompleter,
     this.locationFailure,
+    this.completionFailure,
   }) : deliveries = deliveries ?? assignedDeliveriesFixture();
 
   final List<DriverDelivery> deliveries;
@@ -1123,14 +1188,18 @@ class _FakeDeliveryRepository implements DeliveryRepository {
   DeliveryFailure? startFailure;
   final Completer<DriverDelivery>? startCompleter;
   DeliveryFailure? locationFailure;
+  DeliveryFailure? completionFailure;
   int fetchCalls = 0;
   int detailFetchCalls = 0;
   int startCalls = 0;
   int locationCalls = 0;
+  int completionCalls = 0;
   int? lastDetailId;
   int? lastStartedDeliveryId;
   int? lastLocationDeliveryId;
   DeliveryLocationSample? lastLocationSample;
+  int? lastCompletedDeliveryId;
+  DeliveryCompletionRequest? lastCompletionRequest;
   final Map<int, DriverDelivery> _serverDeliveryOverrides = {};
 
   @override
@@ -1208,6 +1277,25 @@ class _FakeDeliveryRepository implements DeliveryRepository {
       heading: sample.heading,
       recordedAt: sample.recordedAt,
     );
+  }
+
+  @override
+  Future<DriverDelivery> completeDelivery(
+    int deliveryId,
+    DeliveryCompletionRequest request,
+  ) async {
+    completionCalls += 1;
+    lastCompletedDeliveryId = deliveryId;
+    lastCompletionRequest = request;
+    if (completionFailure case final failure?) {
+      throw failure;
+    }
+    final result = driverDeliveryFixture(
+      id: deliveryId,
+      status: DeliveryStatus.delivered,
+    );
+    _serverDeliveryOverrides[deliveryId] = result;
+    return result;
   }
 
   @override

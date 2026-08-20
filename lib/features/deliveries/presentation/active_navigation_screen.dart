@@ -177,7 +177,10 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
         builder: (_) => MarkDeliveredScreen(
           deliveryId: delivery.id,
           store: widget.store,
+          repository: widget.repository,
+          onSessionExpired: widget.onSessionExpired,
           onReturnToDeliveries: widget.onReturnToDeliveries,
+          lastRecordedLocation: _locationController.lastRecordedLocation,
         ),
       ),
     );
@@ -1179,7 +1182,7 @@ class _NavigationActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final deliveredButton = FilledButton(
-      key: const ValueKey('mark-delivered-local'),
+      key: const ValueKey('mark-delivered-api'),
       onPressed: onDelivered,
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.successSoft,

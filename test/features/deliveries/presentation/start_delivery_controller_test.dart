@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_completion_request.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
@@ -117,6 +118,13 @@ class _FakeRepository implements DeliveryRepository {
     int deliveryId,
     DeliveryLocationSample sample,
   ) async => recordedDeliveryLocationFixture();
+
+  @override
+  Future<DriverDelivery> completeDelivery(
+    int deliveryId,
+    DeliveryCompletionRequest request,
+  ) async =>
+      driverDeliveryFixture(id: deliveryId, status: DeliveryStatus.delivered);
 
   @override
   void close() {}

@@ -38,7 +38,7 @@ void main() {
       expect(store.activeCount, 3);
     });
 
-    test('delivered and failed previews stay inside presentation state', () {
+    test('server completion and failed preview update presentation state', () {
       final store = DeliveryUiStore()
         ..replaceFromServer(assignedDeliveriesFixture());
       addTearDown(store.dispose);
@@ -46,7 +46,9 @@ void main() {
       store.replaceOneFromServer(
         driverDeliveryFixture(status: DeliveryStatus.onTheWay),
       );
-      store.previewMarkDelivered(101);
+      store.replaceOneFromServer(
+        driverDeliveryFixture(status: DeliveryStatus.delivered),
+      );
       expect(store.deliveryById(101).status, DeliveryStatus.delivered);
       expect(store.doneCount, 2);
 
@@ -55,7 +57,7 @@ void main() {
       expect(store.doneCount, 3);
     });
 
-    test('a server refresh replaces local preview state', () {
+    test('a server refresh replaces an older terminal response', () {
       final deliveries = assignedDeliveriesFixture();
       final store = DeliveryUiStore()..replaceFromServer(deliveries);
       addTearDown(store.dispose);
@@ -63,7 +65,9 @@ void main() {
       store.replaceOneFromServer(
         driverDeliveryFixture(status: DeliveryStatus.onTheWay),
       );
-      store.previewMarkDelivered(101);
+      store.replaceOneFromServer(
+        driverDeliveryFixture(status: DeliveryStatus.delivered),
+      );
       expect(store.deliveryById(101).status, DeliveryStatus.delivered);
 
       store.replaceFromServer(deliveries);

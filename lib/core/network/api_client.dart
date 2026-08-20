@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:pelekapro_mobile/core/network/api_exception.dart';
+import 'package:pelekapro_mobile/core/network/multipart_file_data.dart';
 
 typedef JsonObject = Map<String, dynamic>;
 
@@ -43,10 +44,38 @@ class ApiClient {
     );
   }
 
-  Map<String, String> _headers({String? bearerToken}) {
+  Future<JsonObject> postMultipart(
+    String endpoint, {
+    required Map<String, String> fields,
+    required MultipartFileData file,
+    String? bearerToken,
+  }) {
+    final request = http.MultipartRequest('POST', _resolve(endpoint))
+      ..headers.addAll(
+        _headers(bearerToken: bearerToken, includeContentType: false),
+      )
+      ..fields.addAll(fields)
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          file.fieldName,
+          file.bytes,
+          filename: file.fileName,
+        ),
+      );
+
+    return _sendJson(() async {
+      final streamedResponse = await _client.send(request);
+      return http.Response.fromStream(streamedResponse);
+    });
+  }
+
+  Map<String, String> _headers({
+    String? bearerToken,
+    bool includeContentType = true,
+  }) {
     return {
       HttpHeaders.acceptHeader: 'application/json',
-      HttpHeaders.contentTypeHeader: 'application/json',
+      if (includeContentType) HttpHeaders.contentTypeHeader: 'application/json',
       if (bearerToken != null)
         HttpHeaders.authorizationHeader: 'Bearer $bearerToken',
     };
