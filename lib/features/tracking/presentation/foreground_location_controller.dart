@@ -6,6 +6,7 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sa
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/location_tracking_policy.dart';
 
 enum ForegroundLocationStatus {
   idle,
@@ -31,7 +32,8 @@ class ForegroundLocationController extends ChangeNotifier {
     this._onTrackingRejected,
     this._onConnectionRestored,
     DateTime Function()? now,
-    this.minimumSubmissionInterval = const Duration(seconds: 5),
+    this.minimumSubmissionInterval =
+        LocationTrackingPolicy.minimumApiSubmissionInterval,
     this.rateLimitBackoff = const Duration(minutes: 1),
   }) : _deliveryId = deliveryId,
        _now = now ?? DateTime.now,

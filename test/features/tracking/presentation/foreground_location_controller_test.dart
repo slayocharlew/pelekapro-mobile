@@ -17,7 +17,7 @@ import '../../../helpers/driver_delivery_fixture.dart';
 void main() {
   group('ForegroundLocationController', () {
     test(
-      'submits granted foreground samples no faster than every 5 seconds',
+      'updates every visual fix but submits no faster than every 5 seconds',
       () async {
         var now = DateTime.utc(2026, 8, 17, 8, 15, 30);
         final source = _FakeDeviceLocationSource();
@@ -46,9 +46,17 @@ void main() {
         expect(controller.heading, 135);
 
         now = now.add(const Duration(seconds: 4));
-        source.emit(deliveryLocationSampleFixture(heading: null));
+        source.emit(
+          deliveryLocationSampleFixture(
+            latitude: -6.7910,
+            longitude: 39.2100,
+            heading: null,
+          ),
+        );
         await _flushAsyncWork();
         expect(repository.locationCalls, 1);
+        expect(controller.latestDeviceLocation?.latitude, -6.7910);
+        expect(controller.latestDeviceLocation?.longitude, 39.2100);
         expect(
           controller.heading,
           135,
@@ -56,9 +64,16 @@ void main() {
         );
 
         now = now.add(const Duration(seconds: 1));
-        source.emit(deliveryLocationSampleFixture(heading: 180));
+        source.emit(
+          deliveryLocationSampleFixture(
+            latitude: -6.7905,
+            longitude: 39.2110,
+            heading: 180,
+          ),
+        );
         await _flushAsyncWork();
         expect(repository.locationCalls, 2);
+        expect(controller.latestDeviceLocation?.latitude, -6.7905);
         expect(controller.heading, 180);
 
         await controller.pause();

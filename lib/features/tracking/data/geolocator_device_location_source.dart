@@ -1,6 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/location_tracking_policy.dart';
 
 class GeolocatorDeviceLocationSource implements DeviceLocationSource {
   const GeolocatorDeviceLocationSource();
@@ -26,9 +27,10 @@ class GeolocatorDeviceLocationSource implements DeviceLocationSource {
 
   @override
   Stream<DeliveryLocationSample> watch() {
-    const settings = LocationSettings(
-      accuracy: LocationAccuracy.high,
+    final settings = AndroidSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: 0,
+      intervalDuration: LocationTrackingPolicy.visualUpdateInterval,
     );
 
     return Geolocator.getPositionStream(locationSettings: settings).map(

@@ -47,7 +47,7 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     latitude: -6.7924,
     longitude: 39.2083,
   );
-  static const _movementDuration = Duration(milliseconds: 650);
+  static const _movementDuration = Duration(milliseconds: 1100);
 
   late final AnimationController _movementController;
   GoogleMapController? _mapController;
@@ -55,6 +55,9 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
   NavigationCoordinate? _animatedLocation;
   NavigationCoordinate? _movementStart;
   NavigationCoordinate? _movementEnd;
+  double _animatedHeading = 0;
+  double _movementStartHeading = 0;
+  double _movementEndHeading = 0;
   bool? _isConfigured;
   bool _programmaticCameraMove = false;
   bool _hasCenteredOnDriver = false;
@@ -65,6 +68,7 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
   void initState() {
     super.initState();
     _animatedLocation = widget.currentLocation;
+    _animatedHeading = _normalizeHeading(widget.heading ?? 0);
     _movementController = AnimationController(
       vsync: this,
       duration: _movementDuration,
@@ -80,8 +84,9 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
       unawaited(_checkConfiguration());
     }
 
-    if (oldWidget.currentLocation != widget.currentLocation) {
-      _animateLocation(widget.currentLocation);
+    if (oldWidget.currentLocation != widget.currentLocation ||
+        oldWidget.heading != widget.heading) {
+      _animatePose(widget.currentLocation, widget.heading);
     }
 
     if (widget.followDriver &&
@@ -134,24 +139,33 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     setState(() => _motorcycleIcon = icon);
   }
 
-  void _animateLocation(NavigationCoordinate? destination) {
+  void _animatePose(
+    NavigationCoordinate? destination,
+    double? destinationHeading,
+  ) {
+    final targetHeading = _nearestEquivalentHeading(
+      _animatedHeading,
+      destinationHeading ?? _animatedHeading,
+    );
     if (destination == null) {
       _movementController.stop();
       setState(() {
         _movementStart = null;
         _movementEnd = null;
         _animatedLocation = null;
+        _animatedHeading = _normalizeHeading(targetHeading);
       });
       return;
     }
 
     final start = _animatedLocation;
-    if (start == null || start == destination) {
+    if (start == null) {
       _movementController.stop();
       setState(() {
         _movementStart = destination;
         _movementEnd = destination;
         _animatedLocation = destination;
+        _animatedHeading = _normalizeHeading(targetHeading);
       });
       return;
     }
@@ -159,6 +173,8 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     _movementController.stop();
     _movementStart = start;
     _movementEnd = destination;
+    _movementStartHeading = _animatedHeading;
+    _movementEndHeading = targetHeading;
     _movementController.forward(from: 0);
   }
 
@@ -168,11 +184,14 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     if (start == null || end == null || !mounted) {
       return;
     }
-    final progress = Curves.easeOutCubic.transform(_movementController.value);
+    final progress = _movementController.value;
     setState(() {
       _animatedLocation = NavigationCoordinate(
         latitude: ui.lerpDouble(start.latitude, end.latitude, progress)!,
         longitude: ui.lerpDouble(start.longitude, end.longitude, progress)!,
+      );
+      _animatedHeading = _normalizeHeading(
+        ui.lerpDouble(_movementStartHeading, _movementEndHeading, progress)!,
       );
     });
   }
@@ -328,7 +347,7 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
           position: _latLng(location),
           anchor: const Offset(0.5, 0.5),
           flat: true,
-          rotation: _normalizedHeading,
+          rotation: _animatedHeading,
           icon: icon,
           zIndexInt: 2,
         ),
@@ -365,9 +384,18 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
   }
 
   double get _normalizedHeading {
-    final heading = widget.heading ?? 0;
-    return ((heading % 360) + 360) % 360;
+    return _normalizeHeading(widget.heading ?? _animatedHeading);
   }
+
+  static double _nearestEquivalentHeading(double start, double target) {
+    final normalizedStart = _normalizeHeading(start);
+    final normalizedTarget = _normalizeHeading(target);
+    final delta = ((normalizedTarget - normalizedStart + 540) % 360) - 180;
+    return start + delta;
+  }
+
+  static double _normalizeHeading(double heading) =>
+      ((heading % 360) + 360) % 360;
 
   static LatLng _latLng(NavigationCoordinate coordinate) {
     return LatLng(coordinate.latitude, coordinate.longitude);

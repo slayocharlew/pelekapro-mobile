@@ -28,7 +28,8 @@ Laravel Reverb broadcasts accepted current state
 - rendering only the deliveries returned for the authenticated driver;
 - submitting user-entered proof, collection, and failure information;
 - starting GPS only after a successful start-delivery response;
-- sending GPS samples approximately every five seconds;
+- using frequent foreground fixes for responsive on-device map movement while
+  sending GPS samples to Laravel approximately every five seconds;
 - stopping GPS immediately after delivery, failure, cancellation, logout, an
   invalid session, or a server response saying tracking is no longer active;
 - handling offline, timeout, validation, authorization, and throttling states;
@@ -643,7 +644,9 @@ Rules enforced by Laravel:
 
 The rate limit is 12 requests per minute per driver/delivery, matching one
 sample approximately every five seconds. On `429`, pause and back off. Do not
-increase submission frequency. There is no altitude field.
+increase API submission frequency. The foreground Android location stream may
+update the motorcycle marker more frequently; those visual fixes remain local
+until the next permitted Laravel submission. There is no altitude field.
 
 ## 10. Mark delivered
 
@@ -765,7 +768,7 @@ use the latest MySQL history point to claim that the driver is currently live.
 | Delivery details | `GET /api/driver/deliveries/{delivery}` |
 | Pickup information | Read `pickup` from the assigned-delivery response; do not submit replacement branch coordinates |
 | Start action | `POST .../{delivery}/start` |
-| Foreground tracking | `POST .../{delivery}/locations` every ~5 seconds |
+| Foreground tracking | Local visual fixes at ~1 second; `POST .../{delivery}/locations` no faster than every ~5 seconds |
 | Delivery completion form | `POST .../{delivery}/deliver` |
 | Failure form | Detail failure reasons, then `POST .../{delivery}/fail` |
 | Logout | `POST /api/auth/logout` |
