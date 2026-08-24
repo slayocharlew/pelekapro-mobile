@@ -17,6 +17,7 @@ import 'package:pelekapro_mobile/shared/widgets/app_card.dart';
 import 'package:pelekapro_mobile/shared/widgets/primary_button.dart';
 import 'package:pelekapro_mobile/shared/widgets/status_badge.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
+import 'package:pelekapro_mobile/features/tracking/data/geolocator_device_location_source.dart';
 
 class DeliveryDetailsScreen extends StatefulWidget {
   const DeliveryDetailsScreen({
@@ -58,6 +59,12 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
     _startController = StartDeliveryController(
       widget.repository,
       onUnauthorized: widget.onSessionExpired,
+      locationSource:
+          widget.deviceLocationSource == null ||
+              widget.deviceLocationSource is GeolocatorDeviceLocationSource
+          ? (widget.deviceLocationSource ??
+                const GeolocatorDeviceLocationSource())
+          : null,
     );
     unawaited(_loadDetails());
   }

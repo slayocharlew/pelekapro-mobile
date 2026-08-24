@@ -1,6 +1,7 @@
 import 'package:pelekapro_mobile/core/config/app_config.dart';
 import 'package:pelekapro_mobile/core/network/api_client.dart';
 import 'package:pelekapro_mobile/core/storage/secure_token_storage.dart';
+import 'package:pelekapro_mobile/core/config/firebase_config.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_remote_data_source.dart';
 import 'package:pelekapro_mobile/features/deliveries/data/delivery_repository_impl.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
@@ -10,6 +11,7 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
+import 'package:pelekapro_mobile/features/tracking/data/firebase_delivery_location_data_source.dart';
 
 abstract final class DeliveryComposition {
   static DeliveryRepository createRepository() {
@@ -24,6 +26,9 @@ abstract final class DeliveryComposition {
       remoteDataSource: DeliveryRemoteDataSource(apiClient),
       tokenStorage: SecureTokenStorage(),
       now: DateTime.now,
+      firebaseLocations: FirebaseConfig.isConfigured
+          ? FirebaseDeliveryLocationDataSource()
+          : null,
     );
   }
 }

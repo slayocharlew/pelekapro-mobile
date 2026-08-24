@@ -1,15 +1,22 @@
 import 'package:flutter/foundation.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_failure.dart';
+import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 enum StartDeliveryStatus { idle, submitting, success, failure }
 
 class StartDeliveryController extends ChangeNotifier {
-  StartDeliveryController(this._repository, {required this.onUnauthorized});
+  StartDeliveryController(
+    this._repository, {
+    required this.onUnauthorized,
+    this.locationSource,
+  });
 
   final DeliveryRepository _repository;
   final VoidCallback onUnauthorized;
+  final DeviceLocationSource? locationSource;
 
   StartDeliveryStatus _status = StartDeliveryStatus.idle;
   DriverDelivery? _startedDelivery;
@@ -36,7 +43,12 @@ class StartDeliveryController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final delivery = await _repository.startDelivery(deliveryId);
+      final startLocation = await _currentStartLocation();
+      final delivery =
+          startLocation != null && _repository is LocationAwareDeliveryStarter
+          ? await (_repository as LocationAwareDeliveryStarter)
+                .startDeliveryAtLocation(deliveryId, startLocation)
+          : await _repository.startDelivery(deliveryId);
       if (_disposed) {
         return;
       }
@@ -63,6 +75,26 @@ class StartDeliveryController extends ChangeNotifier {
       _errorMessage = 'Something went wrong. Please try again.';
       _errorStatusCode = null;
       notifyListeners();
+    }
+  }
+
+  Future<DeliveryLocationSample?> _currentStartLocation() async {
+    final source = locationSource;
+    if (source == null) return null;
+
+    final access = await source.ensureAccess();
+    if (access != DeviceLocationAccess.granted) {
+      throw const DeliveryFailure(
+        message: 'Allow device location before starting this delivery.',
+      );
+    }
+
+    try {
+      return await source.watch().first.timeout(const Duration(seconds: 20));
+    } on Object {
+      throw const DeliveryFailure(
+        message: 'A current GPS location is required to start this delivery.',
+      );
     }
   }
 

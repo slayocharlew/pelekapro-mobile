@@ -10,6 +10,7 @@ import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
 import 'package:pelekapro_mobile/features/deliveries/presentation/start_delivery_controller.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 import '../../../helpers/driver_delivery_fixture.dart';
 
@@ -81,16 +82,42 @@ void main() {
       expect(controller.isUnauthorized, isTrue);
       expect(unauthorizedCalls, 1);
     });
+
+    test('captures a current GPS point for a location-aware start', () async {
+      final sample = DeliveryLocationSample(
+        latitude: -6.7924,
+        longitude: 39.2083,
+        accuracy: 7.5,
+        recordedAt: DateTime.utc(2026, 8, 24, 10),
+      );
+      final repository = _FakeRepository();
+      final controller = StartDeliveryController(
+        repository,
+        onUnauthorized: () {},
+        locationSource: _FakeLocationSource(sample),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.start(101);
+
+      expect(controller.status, StartDeliveryStatus.success);
+      expect(repository.locationAwareStartCalls, 1);
+      expect(repository.lastStartLocation, same(sample));
+      expect(repository.startCalls, 0);
+    });
   });
 }
 
-class _FakeRepository implements DeliveryRepository {
+class _FakeRepository
+    implements DeliveryRepository, LocationAwareDeliveryStarter {
   _FakeRepository({this.completer, this.failure});
 
   final Completer<DriverDelivery>? completer;
   final DeliveryFailure? failure;
   int startCalls = 0;
+  int locationAwareStartCalls = 0;
   int? lastDeliveryId;
+  DeliveryLocationSample? lastStartLocation;
 
   @override
   Future<List<DriverDelivery>> fetchAssignedDeliveries() async => const [];
@@ -114,6 +141,17 @@ class _FakeRepository implements DeliveryRepository {
   }
 
   @override
+  Future<DriverDelivery> startDeliveryAtLocation(
+    int deliveryId,
+    DeliveryLocationSample startLocation,
+  ) async {
+    locationAwareStartCalls += 1;
+    lastDeliveryId = deliveryId;
+    lastStartLocation = startLocation;
+    return driverDeliveryFixture(status: DeliveryStatus.onTheWay);
+  }
+
+  @override
   Future<RecordedDeliveryLocation> submitLocation(
     int deliveryId,
     DeliveryLocationSample sample,
@@ -128,4 +166,23 @@ class _FakeRepository implements DeliveryRepository {
 
   @override
   void close() {}
+}
+
+class _FakeLocationSource implements DeviceLocationSource {
+  const _FakeLocationSource(this.sample);
+
+  final DeliveryLocationSample sample;
+
+  @override
+  Future<DeviceLocationAccess> ensureAccess() async =>
+      DeviceLocationAccess.granted;
+
+  @override
+  Stream<DeliveryLocationSample> watch() => Stream.value(sample);
+
+  @override
+  Future<bool> openAppSettings() async => false;
+
+  @override
+  Future<bool> openLocationSettings() async => false;
 }

@@ -10,6 +10,7 @@ import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/firebase_tracking_credential.dart';
 
 class DeliveryRemoteDataSource {
   const DeliveryRemoteDataSource(this._apiClient);
@@ -70,11 +71,13 @@ class DeliveryRemoteDataSource {
 
   Future<DriverDelivery> startDelivery(
     int deliveryId,
-    String accessToken,
-  ) async {
+    String accessToken, [
+    DeliveryLocationSample? startLocation,
+  ]) async {
     final payload = await _apiClient.postJson(
       '/api/driver/deliveries/$deliveryId/start',
       bearerToken: accessToken,
+      body: startLocation?.toJson(),
     );
     final data = payload['data'];
 
@@ -89,6 +92,27 @@ class DeliveryRemoteDataSource {
         throw const FormatException('Unexpected started delivery.');
       }
       return delivery;
+    } on FormatException {
+      throw ApiException.invalidResponse();
+    }
+  }
+
+  Future<FirebaseTrackingCredential> fetchTrackingCredential(
+    int deliveryId,
+    String accessToken,
+  ) async {
+    final payload = await _apiClient.postJson(
+      '/api/driver/deliveries/$deliveryId/tracking-credentials',
+      bearerToken: accessToken,
+    );
+    final data = payload['data'];
+
+    if (payload['success'] != true || data is! Map<String, dynamic>) {
+      throw ApiException.invalidResponse();
+    }
+
+    try {
+      return FirebaseTrackingCredential.fromJson(data);
     } on FormatException {
       throw ApiException.invalidResponse();
     }

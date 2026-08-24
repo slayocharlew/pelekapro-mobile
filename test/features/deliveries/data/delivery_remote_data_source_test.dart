@@ -397,6 +397,56 @@ void main() {
       expect(recorded.recordedAt, DateTime.utc(2026, 8, 17, 8, 15, 30));
     });
 
+    test(
+      'requests and validates a scoped Firebase tracking credential',
+      () async {
+        late http.Request capturedRequest;
+        const deliveryAlias =
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const sessionAlias =
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        final dataSource = DeliveryRemoteDataSource(
+          ApiClient(
+            baseUri: Uri.parse('https://api.pelekapro.example'),
+            client: MockClient((request) async {
+              capturedRequest = request;
+              return http.Response(
+                jsonEncode({
+                  'success': true,
+                  'data': {
+                    'token': 'short-lived-custom-token',
+                    'delivery_alias': deliveryAlias,
+                    'session_alias': sessionAlias,
+                    'database_path': 'delivery_tracking/$deliveryAlias',
+                    'expires_at': 1787567400,
+                  },
+                }),
+                200,
+              );
+            }),
+          ),
+        );
+
+        final credential = await dataSource.fetchTrackingCredential(
+          101,
+          'stored-driver-token',
+        );
+
+        expect(capturedRequest.method, 'POST');
+        expect(
+          capturedRequest.url.path,
+          '/api/driver/deliveries/101/tracking-credentials',
+        );
+        expect(
+          capturedRequest.headers['authorization'],
+          'Bearer stored-driver-token',
+        );
+        expect(credential.token, 'short-lived-custom-token');
+        expect(credential.deliveryAlias, deliveryAlias);
+        expect(credential.sessionAlias, sessionAlias);
+      },
+    );
+
     test('accepts the documented duplicate-location 200 response', () async {
       final dataSource = DeliveryRemoteDataSource(
         ApiClient(

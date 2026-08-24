@@ -23,3 +23,10 @@ abstract interface class DeliveryRepository {
 
   void close();
 }
+
+abstract interface class LocationAwareDeliveryStarter {
+  Future<DriverDelivery> startDeliveryAtLocation(
+    int deliveryId,
+    DeliveryLocationSample startLocation,
+  );
+}

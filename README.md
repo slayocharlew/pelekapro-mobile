@@ -6,19 +6,18 @@ PelekaPro is the Android driver application for the PelekaPro delivery-managemen
 
 ```text
 PelekaPro Android app
-        ↓
-Laravel Sanctum API
-        ↓
-MySQL
-        ↓
-Redis
-        ↓
-Laravel Reverb
+        ├── Laravel Sanctum API → MySQL authority and start/end evidence
+        └── scoped Firebase Auth → Firebase Realtime Database live/history
+                                      ↓
+                              Customer tracking PWA
+
+Rollback mode:
+Laravel GPS API → MySQL history → Redis latest state → Laravel Reverb
         ↓
 Customer tracking PWA
 ```
 
-The Laravel application remains the authority for users, deliveries, tracking sessions, payments, and delivery status. The mobile application must stop collecting GPS immediately after delivery, failure, or an authorized cancellation.
+The Laravel application and MySQL remain authoritative for users, deliveries, tracking sessions, payments, and delivery status. In Firebase mode, MySQL keeps the start and end GPS evidence while Firebase Realtime Database keeps intermediate GPS history for the configured retention period and the current live point. Redis and Reverb remain available as the controlled rollback transport. The mobile application must stop collecting GPS immediately after delivery, failure, or an authorized cancellation.
 
 ## Development requirements
 
@@ -126,9 +125,9 @@ After authentication, the app consumes `GET /api/driver/deliveries` with the bea
 
 The list response is currently unpaginated and newest-first. The app does not manufacture statuses or add client-side API filters. Opening a delivery consumes `GET /api/driver/deliveries/{delivery}`, refreshes that selected item with the server response, and uses the returned active `failure_reasons` in the Report issue form. Detail loading, retry, malformed-response, and expired-session states are handled without exposing raw exceptions.
 
-Start Delivery consumes `POST /api/driver/deliveries/{delivery}/start` without a request body. The button is disabled while submitting, navigation opens only after Laravel returns the full delivery with `on_the_way`, and the selected delivery is replaced with that server response. A failed or `409` response triggers a detail refetch before another attempt, preventing a blind duplicate start after an ambiguous timeout or conflict. A `401` clears the secure session and returns to login.
+Start Delivery consumes `POST /api/driver/deliveries/{delivery}/start`. When Firebase tracking is enabled, the app first obtains a current device fix and submits `latitude`, `longitude`, optional GPS metadata, and `recorded_at`. Laravel validates that point, creates the authoritative MySQL tracking session and start evidence, then activates the scoped Firebase path. The button is disabled while submitting, navigation opens only after Laravel returns the full delivery with `on_the_way`, and the selected delivery is replaced with that server response. A failed or `409` response triggers a detail refetch before another attempt, preventing a blind duplicate start after an ambiguous timeout or conflict. A `401` clears the secure session and returns to login.
 
-After Laravel starts a delivery, foreground GPS starts with Android permission and service checks. Android requests navigation-grade fixes approximately once per second for responsive on-device movement, while the app submits to Laravel no faster than approximately every five seconds. The motorcycle position and heading interpolate continuously between real fixes; no predicted or fabricated location is sent to Google or Laravel. Tracking pauses when the app is covered and reconciles Laravel state when connectivity or foreground activity returns.
+After Laravel starts a delivery, foreground GPS starts with Android permission and service checks. Android requests navigation-grade fixes approximately once per second for responsive on-device movement, while the app publishes no faster than approximately every five seconds. In Firebase mode it exchanges the Sanctum token through `POST /api/driver/deliveries/{delivery}/tracking-credentials`, signs into Firebase with the returned short-lived custom token, appends the point to its opaque session path, and advances the live point transactionally. The raw delivery, business, driver, and tracking-session IDs are not used in Firebase paths. When Firebase is disabled on Laravel, the app falls back only after the server's explicit `Firebase tracking is not enabled.` response and uses the legacy Laravel location endpoint. The motorcycle position and heading interpolate continuously between real fixes; no predicted or fabricated location is sent to Google, Laravel, or Firebase. Tracking pauses when the app is covered and reconciles Laravel state when connectivity or foreground activity returns.
 
 The navigation view uses the real `dropoff.latitude` and `dropoff.longitude` returned by Laravel. It never substitutes a customer name or written address for geographic coordinates. Google Maps SDK for Android provides only the visible map, while the independently configured OSRM-compatible routing service supplies road geometry, distance, duration, and the next maneuver. If a drop-off pin, GPS fix, map key, or routing response is unavailable, the app shows that limitation and does not draw a fabricated route.
 
@@ -169,7 +168,25 @@ flutter run \
   --dart-define=ROUTING_BASE_URL=https://router.project-osrm.org
 ```
 
-`router.project-osrm.org` is a best-effort demo service suitable for development verification, not a production SLA. Configure a controlled OSRM deployment or supported provider for production. The Google SDK remains a renderer only: the app does not add Google Places, Routes, Navigation, Geocoding, or Street View services. Device GPS samples continue to go exclusively to Laravel through `POST /api/driver/deliveries/{delivery}/locations`.
+`router.project-osrm.org` is a best-effort demo service suitable for development verification, not a production SLA. Configure a controlled OSRM deployment or supported provider for production. The Google SDK remains a renderer only: the app does not add Google Places, Routes, Navigation, Geocoding, or Street View services.
+
+## Firebase live tracking
+
+Firebase client configuration is supplied at compile time and is not stored in source control. Use the Android Firebase app registered for `tz.co.pelekapro.mobile`:
+
+```bash
+flutter run -d DEVICE_ID \
+  --dart-define=API_BASE_URL=https://YOUR_LARAVEL_ORIGIN \
+  --dart-define=FIREBASE_API_KEY=YOUR_ANDROID_FIREBASE_API_KEY \
+  --dart-define=FIREBASE_APP_ID=YOUR_ANDROID_FIREBASE_APP_ID \
+  --dart-define=FIREBASE_PROJECT_ID=YOUR_FIREBASE_PROJECT_ID \
+  --dart-define=FIREBASE_DATABASE_URL=https://YOUR_DATABASE.firebasedatabase.app \
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=YOUR_SENDER_ID
+```
+
+These values identify the Firebase client; database security comes from Firebase Authentication, the short-lived Laravel-issued custom token, and the deployed Realtime Database rules. Do not commit real environment values, service-account JSON, Laravel credentials, Sanctum tokens, or Firebase custom tokens. The app uses in-memory Firebase authentication state and refreshes scoped tracking credentials shortly before expiry.
+
+The direct Firebase point contains only GPS metadata and opaque aliases. It does not contain customer data, a public tracking token, payment data, delivery PINs, or Laravel authentication credentials. Firebase writes are denied after Laravel revokes the tracking control at delivered, failed, or cancelled. Terminal workflow calls still go to Laravel so MySQL can close the session, preserve the end point when available, and remain authoritative.
 
 Mark Delivered consumes `POST /api/driver/deliveries/{delivery}/deliver`, including optional photo proof and the actual collected amount when Laravel requires collection. The current backend contract has no delivery PIN field, so the mobile app neither requests nor submits one. Report Issue remains the next local-only outcome workflow:
 
@@ -222,7 +239,10 @@ Implemented:
 - Assigned deliveries through `GET /api/driver/deliveries`
 - Selected delivery and active failure reasons through `GET /api/driver/deliveries/{delivery}`
 - Start delivery through `POST /api/driver/deliveries/{delivery}/start`
-- Foreground device location through `POST /api/driver/deliveries/{delivery}/locations`
+- Current start GPS evidence through `POST /api/driver/deliveries/{delivery}/start`
+- Short-lived scoped Firebase credentials through `POST /api/driver/deliveries/{delivery}/tracking-credentials`
+- Direct Firebase Realtime Database intermediate history and live-point updates
+- Explicit legacy location-API fallback while Laravel is configured for Redis/Reverb mode
 - Google Maps SDK for Android rendering with the rider and server-provided drop-off coordinates
 - Android-local, manifest-placeholder map-key injection with a safe missing-key state
 - Configurable OSRM road geometry, ETA, distance, and maneuver guidance

@@ -10,6 +10,7 @@ import 'package:pelekapro_mobile/features/deliveries/domain/delivery_status.dart
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/driver_delivery_details.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/recorded_delivery_location.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/firebase_tracking_credential.dart';
 
 import '../../../helpers/driver_delivery_fixture.dart';
 
@@ -483,7 +484,11 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
   }
 
   @override
-  Future<DriverDelivery> startDelivery(int id, String token) async {
+  Future<DriverDelivery> startDelivery(
+    int id,
+    String token, [
+    DeliveryLocationSample? startLocation,
+  ]) async {
     startCalls += 1;
     startedDeliveryId = id;
     startAccessToken = token;
@@ -492,6 +497,14 @@ class _FakeDeliveryRemoteDataSource implements DeliveryRemoteDataSource {
     }
     return startedDelivery ??
         driverDeliveryFixture(id: id, status: DeliveryStatus.onTheWay);
+  }
+
+  @override
+  Future<FirebaseTrackingCredential> fetchTrackingCredential(
+    int deliveryId,
+    String accessToken,
+  ) {
+    throw UnimplementedError();
   }
 
   @override
