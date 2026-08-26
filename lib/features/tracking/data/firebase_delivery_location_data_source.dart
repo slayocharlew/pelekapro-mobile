@@ -1,17 +1,21 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/firebase_history_sampling_policy.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/firebase_tracking_credential.dart';
 
 class FirebaseDeliveryLocationDataSource {
   FirebaseDeliveryLocationDataSource({
     FirebaseAuth? auth,
     FirebaseDatabase? database,
+    this.historySamplingPolicy = const FirebaseHistorySamplingPolicy(),
   }) : _auth = auth ?? FirebaseAuth.instance,
        _database = database ?? FirebaseDatabase.instance;
 
   final FirebaseAuth _auth;
   final FirebaseDatabase _database;
+  final FirebaseHistorySamplingPolicy historySamplingPolicy;
+  final Map<String, DeliveryLocationSample> _lastHistorySamples = {};
 
   Future<void> authenticate(FirebaseTrackingCredential credential) async {
     await _auth.signInWithCustomToken(credential.token);
@@ -37,16 +41,24 @@ class FirebaseDeliveryLocationDataSource {
       'received_at_ms': ServerValue.timestamp,
     };
     final root = _database.ref(credential.databasePath);
+    final historyKey = '${credential.databasePath}|${credential.sessionAlias}';
+    final retainHistory = historySamplingPolicy.shouldRetain(
+      previous: _lastHistorySamples[historyKey],
+      current: sample,
+    );
 
-    await root
-        .child('history/${credential.sessionAlias}/$sampleId')
-        .runTransaction((current) {
-          if (current != null) {
-            return Transaction.abort();
-          }
+    if (retainHistory) {
+      await root
+          .child('history/${credential.sessionAlias}/$sampleId')
+          .runTransaction((current) {
+            if (current != null) {
+              return Transaction.abort();
+            }
 
-          return Transaction.success(point);
-        }, applyLocally: false);
+            return Transaction.success(point);
+          }, applyLocally: false);
+      _lastHistorySamples[historyKey] = sample;
+    }
 
     await root.child('live').runTransaction((current) {
       final existing = current is Map
@@ -65,7 +77,10 @@ class FirebaseDeliveryLocationDataSource {
     }, applyLocally: false);
   }
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    _lastHistorySamples.clear();
+    await _auth.signOut();
+  }
 
   String _sampleId(DeliveryLocationSample sample, DateTime recordedAt) {
     final timestamp = recordedAt.microsecondsSinceEpoch.toRadixString(36);
