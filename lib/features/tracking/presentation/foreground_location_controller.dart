@@ -172,7 +172,9 @@ class ForegroundLocationController extends ChangeNotifier {
     _pendingSample = null;
     _lastAttemptAt = currentTime;
     _sendingGeneration = generation;
-    _setStatus(ForegroundLocationStatus.syncing);
+    if (_lastRecordedLocation == null) {
+      _setStatus(ForegroundLocationStatus.syncing);
+    }
 
     try {
       final recorded = await _repository.submitLocation(_deliveryId, sample);
@@ -187,7 +189,9 @@ class ForegroundLocationController extends ChangeNotifier {
       if (recorded.heading case final heading?) {
         _heading = heading;
       }
-      _setStatus(ForegroundLocationStatus.tracking);
+      if (_status != ForegroundLocationStatus.tracking) {
+        _setStatus(ForegroundLocationStatus.tracking);
+      }
 
       if (connectionWasUnavailable && _onConnectionRestored != null) {
         unawaited(Future<void>.sync(_onConnectionRestored));

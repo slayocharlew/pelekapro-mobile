@@ -44,6 +44,8 @@ void main() {
         expect(repository.lastDeliveryId, 101);
         expect(controller.status, ForegroundLocationStatus.tracking);
         expect(controller.heading, 135);
+        final routineStatuses = <ForegroundLocationStatus>[];
+        controller.addListener(() => routineStatuses.add(controller.status));
 
         now = now.add(const Duration(seconds: 4));
         source.emit(
@@ -75,6 +77,11 @@ void main() {
         expect(repository.locationCalls, 2);
         expect(controller.latestDeviceLocation?.latitude, -6.7905);
         expect(controller.heading, 180);
+        expect(
+          routineStatuses,
+          isNot(contains(ForegroundLocationStatus.syncing)),
+          reason: 'Routine five-second writes must not flash a loading state.',
+        );
 
         await controller.pause();
         source.emit(deliveryLocationSampleFixture());

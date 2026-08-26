@@ -7,7 +7,7 @@ PelekaPro is the Android driver application for the PelekaPro delivery-managemen
 ```text
 PelekaPro Android app
         ├── Laravel Sanctum API → MySQL authority and start/end evidence
-        └── scoped Firebase Auth → Firebase Realtime Database live/history
+        └── scoped Firebase Auth → one replaceable Firebase live point
                                       ↓
                               Customer tracking PWA
 
@@ -17,7 +17,7 @@ Laravel GPS API → MySQL history → Redis latest state → Laravel Reverb
 Customer tracking PWA
 ```
 
-The Laravel application and MySQL remain authoritative for users, deliveries, tracking sessions, payments, and delivery status. In Firebase mode, MySQL keeps the start and end GPS evidence while Firebase Realtime Database keeps intermediate GPS history for the configured retention period and the current live point. Redis and Reverb remain available as the controlled rollback transport. The mobile application must stop collecting GPS immediately after delivery, failure, or an authorized cancellation.
+The Laravel application and MySQL remain authoritative for users, deliveries, tracking sessions, payments, delivery status, and the start/end GPS evidence. In Firebase mode, Realtime Database keeps only the current live point for each delivery and replaces it with each accepted update; the mobile app does not create intermediate Firebase history. Redis and Reverb remain available as the controlled rollback transport. The mobile application must stop collecting GPS immediately after delivery, failure, or an authorized cancellation.
 
 ## Development requirements
 
@@ -127,7 +127,7 @@ The list response is currently unpaginated and newest-first. The app does not ma
 
 Start Delivery consumes `POST /api/driver/deliveries/{delivery}/start`. When Firebase tracking is enabled, the app first obtains a current device fix and submits `latitude`, `longitude`, optional GPS metadata, and `recorded_at`. Laravel validates that point, creates the authoritative MySQL tracking session and start evidence, then activates the scoped Firebase path. The button is disabled while submitting, navigation opens only after Laravel returns the full delivery with `on_the_way`, and the selected delivery is replaced with that server response. A failed or `409` response triggers a detail refetch before another attempt, preventing a blind duplicate start after an ambiguous timeout or conflict. A `401` clears the secure session and returns to login.
 
-After Laravel starts a delivery, foreground GPS starts with Android permission and service checks. Android requests navigation-grade fixes approximately once per second for responsive on-device movement, while the app publishes the current Firebase `/live` point no faster than approximately every five seconds. Route evidence under Firebase `/history` is sampled separately every 20 seconds, or sooner after at least 50 metres of movement, so the live map remains responsive without retaining every intermediate fix. In Firebase mode the app exchanges the Sanctum token through `POST /api/driver/deliveries/{delivery}/tracking-credentials`, signs into Firebase with the returned short-lived custom token, and writes only to its opaque delivery/session scope. The raw delivery, business, driver, and tracking-session IDs are not used in Firebase paths. When Firebase is disabled on Laravel, the app falls back only after the server's explicit `Firebase tracking is not enabled.` response and uses the legacy Laravel location endpoint. The motorcycle position and heading interpolate continuously between real fixes; no predicted or fabricated location is sent to Google, Laravel, or Firebase. Tracking pauses when the app is covered and reconciles Laravel state when connectivity or foreground activity returns.
+After Laravel starts a delivery, foreground GPS starts with Android permission and service checks. Android requests navigation-grade fixes approximately once per second for responsive on-device movement, while the app publishes the current Firebase `/live` point no faster than approximately every five seconds. Every accepted write replaces that one child; the app does not append intermediate points under `/history`. Routine five-second writes stay in the background after the first successful synchronization, so the tracking banner does not flash a loading spinner for every point. In Firebase mode the app exchanges the Sanctum token through `POST /api/driver/deliveries/{delivery}/tracking-credentials`, signs into Firebase with the returned short-lived custom token, and writes only to its opaque delivery/session scope. The raw delivery, business, driver, and tracking-session IDs are not used in Firebase paths. When Firebase is disabled on Laravel, the app falls back only after the server's explicit `Firebase tracking is not enabled.` response and uses the legacy Laravel location endpoint. The motorcycle position and heading interpolate continuously between real fixes; no predicted or fabricated location is sent to Google, Laravel, or Firebase. Tracking pauses when the app is covered and reconciles Laravel state when connectivity or foreground activity returns.
 
 The navigation view uses the real `dropoff.latitude` and `dropoff.longitude` returned by Laravel. It never substitutes a customer name or written address for geographic coordinates. Google Maps SDK for Android provides only the visible map, while the independently configured OSRM-compatible routing service supplies road geometry, distance, duration, and the next maneuver. If a drop-off pin, GPS fix, map key, or routing response is unavailable, the app shows that limitation and does not draw a fabricated route.
 
@@ -241,7 +241,7 @@ Implemented:
 - Start delivery through `POST /api/driver/deliveries/{delivery}/start`
 - Current start GPS evidence through `POST /api/driver/deliveries/{delivery}/start`
 - Short-lived scoped Firebase credentials through `POST /api/driver/deliveries/{delivery}/tracking-credentials`
-- Direct Firebase Realtime Database intermediate history and live-point updates
+- Direct Firebase Realtime Database single live-point updates
 - Explicit legacy location-API fallback while Laravel is configured for Redis/Reverb mode
 - Google Maps SDK for Android rendering with the rider and server-provided drop-off coordinates
 - Android-local, manifest-placeholder map-key injection with a safe missing-key state

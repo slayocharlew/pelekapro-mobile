@@ -1,1 +1,0 @@
-  }) : assert(minimumDistanceMetres >= 0);
