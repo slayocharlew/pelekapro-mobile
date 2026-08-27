@@ -24,7 +24,7 @@ class PelekaProBrand extends StatelessWidget {
         children: [
           SizedBox.square(
             dimension: markSize,
-            child: const CustomPaint(painter: _PelekaProMarkPainter()),
+            child: PelekaProMark(size: markSize),
           ),
           SizedBox(width: compact ? 8 : 12),
           Flexible(
@@ -76,45 +76,28 @@ class PelekaProBrand extends StatelessWidget {
   }
 }
 
-class _PelekaProMarkPainter extends CustomPainter {
-  const _PelekaProMarkPainter();
+class PelekaProMark extends StatelessWidget {
+  const PelekaProMark({required this.size, super.key});
+
+  static const assetName = 'assets/branding/pelekapro_mark_foreground.png';
+
+  final double size;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final orange = Paint()..color = AppColors.postmanOrange;
-    final darkOrange = Paint()..color = AppColors.postmanOrangeDark;
-    final white = Paint()..color = Colors.white;
-
-    final outer = Path()
-      ..moveTo(size.width * 0.5, 0)
-      ..lineTo(size.width, size.height * 0.25)
-      ..lineTo(size.width, size.height * 0.75)
-      ..lineTo(size.width * 0.5, size.height)
-      ..lineTo(0, size.height * 0.75)
-      ..lineTo(0, size.height * 0.25)
-      ..close();
-    canvas.drawPath(outer, orange);
-
-    final shade = Path()
-      ..moveTo(0, size.height * 0.25)
-      ..lineTo(size.width * 0.5, size.height * 0.5)
-      ..lineTo(size.width * 0.5, size.height)
-      ..lineTo(0, size.height * 0.75)
-      ..close();
-    canvas.drawPath(shade, darkOrange);
-
-    final route = Path()
-      ..moveTo(size.width * 0.28, size.height * 0.32)
-      ..lineTo(size.width * 0.7, size.height * 0.18)
-      ..lineTo(size.width * 0.7, size.height * 0.36)
-      ..lineTo(size.width * 0.44, size.height * 0.46)
-      ..lineTo(size.width * 0.7, size.height * 0.58)
-      ..lineTo(size.width * 0.7, size.height * 0.77)
-      ..lineTo(size.width * 0.28, size.height * 0.58)
-      ..close();
-    canvas.drawPath(route, white);
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.24),
+      child: ColoredBox(
+        color: AppColors.postmanOrange,
+        child: Image.asset(
+          assetName,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          semanticLabel: 'PelekaPro',
+        ),
+      ),
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

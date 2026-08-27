@@ -4,6 +4,7 @@ import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/auth_flow.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_repository.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
+import 'package:pelekapro_mobile/features/onboarding/onboarding_store.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 
 class PelekaProApp extends StatelessWidget {
@@ -13,6 +14,7 @@ class PelekaProApp extends StatelessWidget {
     this.deliveryRepository,
     this.deviceLocationSource,
     this.navigationRouteService,
+    this.onboardingStore,
     this.loadGoogleMap = true,
   });
 
@@ -20,6 +22,7 @@ class PelekaProApp extends StatelessWidget {
   final DeliveryRepository? deliveryRepository;
   final DeviceLocationSource? deviceLocationSource;
   final NavigationRouteService? navigationRouteService;
+  final OnboardingStore? onboardingStore;
   final bool loadGoogleMap;
 
   @override
@@ -33,6 +36,7 @@ class PelekaProApp extends StatelessWidget {
         deliveryRepository: deliveryRepository,
         deviceLocationSource: deviceLocationSource,
         navigationRouteService: navigationRouteService,
+        onboardingStore: onboardingStore,
         loadGoogleMap: loadGoogleMap,
       ),
     );

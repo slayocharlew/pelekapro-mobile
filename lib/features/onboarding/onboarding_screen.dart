@@ -3,6 +3,7 @@ import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/auth/domain/auth_repository.dart';
 import 'package:pelekapro_mobile/features/auth/presentation/login_screen.dart';
 import 'package:pelekapro_mobile/features/onboarding/widgets/onboarding_illustration.dart';
+import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key, this.authRepository, this.onOpenLogin});
@@ -142,19 +143,7 @@ class _OnboardingHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(22, 12, 14, 4),
       child: Row(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.postmanOrange,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.local_shipping_rounded,
-              color: Colors.white,
-              semanticLabel: 'PelekaPro',
-            ),
-          ),
+          const PelekaProMark(size: 42),
           const SizedBox(width: 11),
           const Expanded(
             child: Text(

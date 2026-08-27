@@ -23,6 +23,7 @@ import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dar
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route_service.dart';
 import 'package:pelekapro_mobile/features/navigation/presentation/google_navigation_map.dart';
 import 'package:pelekapro_mobile/features/onboarding/onboarding_screen.dart';
+import 'package:pelekapro_mobile/features/onboarding/onboarding_store.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/device_location_source.dart';
 import 'package:pelekapro_mobile/shared/widgets/pelekapro_brand.dart';
 
@@ -36,7 +37,12 @@ void main() {
     final completer = Completer<SessionRestoreResult>();
     final repository = _FakeAuthRepository(restoreCompleter: completer);
 
-    await tester.pumpWidget(PelekaProApp(authRepository: repository));
+    await tester.pumpWidget(
+      PelekaProApp(
+        authRepository: repository,
+        onboardingStore: _FakeOnboardingStore(completed: true),
+      ),
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('session-check-screen')), findsOneWidget);
@@ -71,6 +77,32 @@ void main() {
     final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(materialApp.theme?.colorScheme.primary, AppColors.postmanOrange);
     expect(materialApp.theme?.scaffoldBackgroundColor, AppColors.whiteSmoke);
+  });
+
+  testWidgets('first run shows onboarding and skip remembers completion', (
+    tester,
+  ) async {
+    _usePhoneSurface(tester);
+    final onboardingStore = _FakeOnboardingStore(completed: false);
+
+    await tester.pumpWidget(
+      PelekaProApp(
+        authRepository: _FakeAuthRepository(),
+        onboardingStore: onboardingStore,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byKey(const ValueKey('onboarding-page-view')), findsOneWidget);
+    expect(find.text('Deliveries made simple'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('onboarding-skip')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(onboardingStore.markCompletedCalls, 1);
+    expect(find.byKey(const ValueKey('login-screen')), findsOneWidget);
   });
 
   testWidgets('login form validates required credentials', (tester) async {
@@ -194,6 +226,7 @@ void main() {
       PelekaProApp(
         authRepository: _authenticatedRepository(),
         deliveryRepository: deliveryRepository,
+        onboardingStore: _FakeOnboardingStore(completed: true),
       ),
     );
     await tester.pump();
@@ -947,6 +980,7 @@ void main() {
           authRepository: _authenticatedRepository(),
           deliveryRepository: _FakeDeliveryRepository(),
           deviceLocationSource: _EmptyDeviceLocationSource(),
+          onboardingStore: _FakeOnboardingStore(completed: true),
           loadGoogleMap: false,
         ),
       );
@@ -977,6 +1011,7 @@ void main() {
         authRepository: _authenticatedRepository(),
         deliveryRepository: _FakeDeliveryRepository(),
         deviceLocationSource: _EmptyDeviceLocationSource(),
+        onboardingStore: _FakeOnboardingStore(completed: true),
         loadGoogleMap: false,
       ),
     );
@@ -1124,10 +1159,27 @@ Future<void> _pumpApp(
       deviceLocationSource:
           deviceLocationSource ?? _EmptyDeviceLocationSource(),
       navigationRouteService: navigationRouteService,
+      onboardingStore: _FakeOnboardingStore(completed: true),
       loadGoogleMap: false,
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class _FakeOnboardingStore implements OnboardingStore {
+  _FakeOnboardingStore({required this.completed});
+
+  bool completed;
+  int markCompletedCalls = 0;
+
+  @override
+  Future<bool> isCompleted() async => completed;
+
+  @override
+  Future<void> markCompleted() async {
+    markCompletedCalls += 1;
+    completed = true;
+  }
 }
 
 void _usePhoneSurface(WidgetTester tester) {
