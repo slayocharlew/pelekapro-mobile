@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:pelekapro_mobile/features/deliveries/domain/delivery_location_sample.dart';
 import 'package:pelekapro_mobile/features/tracking/domain/firebase_tracking_credential.dart';
+import 'package:pelekapro_mobile/features/tracking/domain/firebase_timestamp_formatter.dart';
 
 class FirebaseDeliveryLocationDataSource {
   FirebaseDeliveryLocationDataSource({
@@ -32,7 +33,7 @@ class FirebaseDeliveryLocationDataSource {
       if (sample.accuracy != null) 'accuracy': sample.accuracy!,
       if (sample.speed != null) 'speed': sample.speed!,
       if (sample.heading != null) 'heading': sample.heading!,
-      'recorded_at': recordedAt.toIso8601String(),
+      'recorded_at': FirebaseTimestampFormatter.eastAfricaIso8601(recordedAt),
       'recorded_at_ms': recordedAt.millisecondsSinceEpoch,
       'received_at_ms': ServerValue.timestamp,
     };

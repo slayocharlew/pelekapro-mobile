@@ -19,6 +19,10 @@ Customer tracking PWA
 
 The Laravel application and MySQL remain authoritative for users, deliveries, tracking sessions, payments, delivery status, and the start/end GPS evidence. In Firebase mode, Realtime Database keeps only the current live point for each delivery and replaces it with each accepted update; the mobile app does not create intermediate Firebase history. Redis and Reverb remain available as the controlled rollback transport. The mobile application must stop collecting GPS immediately after delivery, failure, or an authorized cancellation.
 
+Firebase's human-readable `recorded_at` value uses ISO-8601 East Africa Time
+with an explicit `+03:00` offset. Ordering still uses UTC epoch milliseconds, so
+the timezone representation never changes which live point is newest.
+
 ## Development requirements
 
 - Flutter stable 3.44.8 or a compatible newer stable release
