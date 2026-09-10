@@ -364,6 +364,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                   currentLocation: currentLocation,
                   route: _routeController.route,
                   heading: _locationController.heading,
+                  speedMetersPerSecond:
+                      _locationController.latestDeviceLocation?.speed,
                   loadGoogleMap: widget.loadGoogleMap,
                   followDriver: _followDriver,
                   followHeading: _followHeading,
@@ -422,10 +424,11 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                 ),
               ),
               DraggableScrollableSheet(
-                initialChildSize: 0.48,
-                minChildSize: 0.38,
+                initialChildSize: 0.34,
+                minChildSize: 0.30,
                 maxChildSize: 0.72,
                 snap: true,
+                snapSizes: const [0.34, 0.72],
                 builder: (context, scrollController) {
                   return _DeliveryNavigationSheet(
                     delivery: delivery,
@@ -741,142 +744,162 @@ class _DeliveryNavigationSheet extends StatelessWidget {
       shadowColor: Colors.black26,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
       clipBehavior: Clip.antiAlias,
-      child: ListView(
-        key: const ValueKey('active-navigation-sheet-list'),
-        controller: scrollController,
-        padding: EdgeInsets.fromLTRB(
-          AppSpacing.page,
-          AppSpacing.xs,
-          AppSpacing.page,
-          AppSpacing.md + MediaQuery.paddingOf(context).bottom,
-        ),
+      child: Column(
         children: [
-          Center(
-            child: Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(99),
+          Expanded(
+            child: ListView(
+              key: const ValueKey('active-navigation-sheet-list'),
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.xs,
+                AppSpacing.page,
+                AppSpacing.sm,
               ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
                   children: [
-                    Text(
-                      delivery.code,
-                      style: const TextStyle(
-                        color: AppColors.postmanOrangeDark,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            delivery.code,
+                            style: const TextStyle(
+                              color: AppColors.postmanOrangeDark,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xxs),
+                          Text(
+                            delivery.recipientName,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.xxs),
-                    Text(
-                      delivery.recipientName,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    StatusBadge(status: delivery.status.apiValue),
                   ],
                 ),
-              ),
-              StatusBadge(status: delivery.status.apiValue),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          _SheetRouteRow(
-            icon: Icons.circle,
-            label: 'Pickup',
-            value: _shortArea(delivery.pickupArea),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          _SheetRouteRow(
-            icon: Icons.location_on_rounded,
-            label: 'Drop off',
-            value: _shortArea(delivery.dropoffArea),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Expanded(
-                child: _SheetMetric(
-                  label: 'Last update',
-                  value: formatDeliveryTime(
-                    context,
-                    locationController.lastRecordedLocation?.recordedAt ??
-                        delivery.lastUpdatedAt,
-                  ),
+                const SizedBox(height: AppSpacing.sm),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SheetMetric(
+                        label: 'Last update',
+                        value: formatDeliveryTime(
+                          context,
+                          locationController.lastRecordedLocation?.recordedAt ??
+                              delivery.lastUpdatedAt,
+                        ),
+                      ),
+                    ),
+                    if (routeController.route case final route?) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: _SheetMetric(
+                          key: const ValueKey('live-route-summary'),
+                          label: 'ETA & distance',
+                          value: _routeSummary(route),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ),
-              if (routeController.route case final route?) ...[
-                const SizedBox(width: AppSpacing.xs),
-                Expanded(
-                  child: _SheetMetric(
-                    key: const ValueKey('live-route-summary'),
-                    label: 'ETA & distance',
-                    value: _routeSummary(route),
+                if (routeController.isRefreshing) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  const LinearProgressIndicator(
+                    key: ValueKey('navigation-route-refreshing'),
+                    minHeight: 2,
                   ),
+                ],
+                const SizedBox(height: AppSpacing.sm),
+                _LocationTrackingBanner(
+                  controller: locationController,
+                  onRetry: onRetryLocation,
+                  onOpenAppSettings: onOpenAppSettings,
+                  onOpenLocationSettings: onOpenLocationSettings,
                 ),
+                const SizedBox(height: AppSpacing.sm),
+                _SheetRouteRow(
+                  icon: Icons.circle,
+                  label: 'Pickup',
+                  value: _shortArea(delivery.pickupArea),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                _SheetRouteRow(
+                  icon: Icons.location_on_rounded,
+                  label: 'Drop off',
+                  value: _shortArea(delivery.dropoffArea),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                const _DeliveryProgress(),
+                const SizedBox(height: AppSpacing.md),
+                if (detailsStatus == DeliveryDetailsStatus.loading) ...[
+                  const LinearProgressIndicator(
+                    key: ValueKey('active-delivery-details-loading'),
+                    minHeight: 2,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ] else if (detailsStatus == DeliveryDetailsStatus.failure) ...[
+                  _InlineDetailsError(
+                    message:
+                        detailsError ?? 'Delivery details are unavailable.',
+                    onRetry: onRetryDetails,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ] else if (detailsStatus == DeliveryDetailsStatus.ready &&
+                    !failureReasonsAvailable) ...[
+                  const Text(
+                    'No issue reasons are currently available.',
+                    key: ValueKey('no-failure-reasons'),
+                    style: TextStyle(color: AppColors.mutedInk, fontSize: 12),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
               ],
-            ],
+            ),
           ),
-          if (routeController.isRefreshing) ...[
-            const SizedBox(height: AppSpacing.xs),
-            const LinearProgressIndicator(
-              key: ValueKey('navigation-route-refreshing'),
-              minHeight: 2,
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.page,
+              AppSpacing.xs,
+              AppSpacing.page,
+              AppSpacing.sm + MediaQuery.paddingOf(context).bottom,
             ),
-          ],
-          const SizedBox(height: AppSpacing.sm),
-          _LocationTrackingBanner(
-            controller: locationController,
-            onRetry: onRetryLocation,
-            onOpenAppSettings: onOpenAppSettings,
-            onOpenLocationSettings: onOpenLocationSettings,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          const _DeliveryProgress(),
-          const SizedBox(height: AppSpacing.md),
-          if (detailsStatus == DeliveryDetailsStatus.loading) ...[
-            const LinearProgressIndicator(
-              key: ValueKey('active-delivery-details-loading'),
-              minHeight: 2,
+            decoration: const BoxDecoration(
+              color: AppColors.white,
+              border: Border(top: BorderSide(color: AppColors.border)),
             ),
-            const SizedBox(height: AppSpacing.sm),
-          ] else if (detailsStatus == DeliveryDetailsStatus.failure) ...[
-            _InlineDetailsError(
-              message: detailsError ?? 'Delivery details are unavailable.',
-              onRetry: onRetryDetails,
+            child: _NavigationActions(
+              onDelivered:
+                  detailsStatus == DeliveryDetailsStatus.ready &&
+                      delivery.status.isActive
+                  ? onDelivered
+                  : null,
+              onIssue:
+                  detailsStatus == DeliveryDetailsStatus.ready &&
+                      delivery.status.isActive &&
+                      failureReasonsAvailable
+                  ? onIssue
+                  : null,
             ),
-            const SizedBox(height: AppSpacing.sm),
-          ] else if (detailsStatus == DeliveryDetailsStatus.ready &&
-              !failureReasonsAvailable) ...[
-            const Text(
-              'No issue reasons are currently available.',
-              key: ValueKey('no-failure-reasons'),
-              style: TextStyle(color: AppColors.mutedInk, fontSize: 12),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
-          _NavigationActions(
-            onDelivered:
-                detailsStatus == DeliveryDetailsStatus.ready &&
-                    delivery.status.isActive
-                ? onDelivered
-                : null,
-            onIssue:
-                detailsStatus == DeliveryDetailsStatus.ready &&
-                    delivery.status.isActive &&
-                    failureReasonsAvailable
-                ? onIssue
-                : null,
           ),
         ],
       ),

@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pelekapro_mobile/app/theme/app_theme.dart';
 import 'package:pelekapro_mobile/features/navigation/data/android_google_maps_configuration.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/google_maps_configuration.dart';
+import 'package:pelekapro_mobile/features/navigation/domain/navigation_camera_policy.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_coordinate.dart';
 import 'package:pelekapro_mobile/features/navigation/domain/navigation_route.dart';
 
@@ -21,6 +22,7 @@ class GoogleNavigationMap extends StatefulWidget {
     required this.followHeading,
     required this.recenterRequest,
     required this.onInteractionStarted,
+    this.speedMetersPerSecond,
     this.mapsConfiguration = const AndroidGoogleMapsConfiguration(),
     super.key,
   });
@@ -30,6 +32,7 @@ class GoogleNavigationMap extends StatefulWidget {
   final NavigationCoordinate? currentLocation;
   final NavigationRoute? route;
   final double? heading;
+  final double? speedMetersPerSecond;
   final bool loadGoogleMap;
   final bool followDriver;
   final bool followHeading;
@@ -47,7 +50,8 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     latitude: -6.7924,
     longitude: 39.2083,
   );
-  static const _movementDuration = Duration(milliseconds: 1100);
+  static const _movementDuration = Duration(milliseconds: 950);
+  static const _cameraDuration = Duration(milliseconds: 850);
 
   late final AnimationController _movementController;
   GoogleMapController? _mapController;
@@ -62,13 +66,19 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
   bool _programmaticCameraMove = false;
   bool _hasCenteredOnDriver = false;
   double _cameraZoom = 17;
+  double _cameraTilt = 42;
+  double _cameraBearing = 0;
+  double _smoothedSpeed = 0;
   int _configurationCheck = 0;
+  int _cameraAnimationGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _animatedLocation = widget.currentLocation;
     _animatedHeading = _normalizeHeading(widget.heading ?? 0);
+    _cameraBearing = _animatedHeading;
+    _smoothedSpeed = _safeSpeed(widget.speedMetersPerSecond);
     _movementController = AnimationController(
       vsync: this,
       duration: _movementDuration,
@@ -85,13 +95,16 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     }
 
     if (oldWidget.currentLocation != widget.currentLocation ||
-        oldWidget.heading != widget.heading) {
+        oldWidget.heading != widget.heading ||
+        oldWidget.speedMetersPerSecond != widget.speedMetersPerSecond) {
+      _updateSmoothedSpeed(widget.speedMetersPerSecond);
       _animatePose(widget.currentLocation, widget.heading);
     }
 
     if (widget.followDriver &&
         (oldWidget.currentLocation != widget.currentLocation ||
             oldWidget.heading != widget.heading ||
+            oldWidget.speedMetersPerSecond != widget.speedMetersPerSecond ||
             oldWidget.followHeading != widget.followHeading ||
             oldWidget.recenterRequest != widget.recenterRequest)) {
       _scheduleFollow();
@@ -104,6 +117,7 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
   @override
   void dispose() {
     _configurationCheck += 1;
+    _cameraAnimationGeneration += 1;
     _movementController.dispose();
     _mapController = null;
     super.dispose();
@@ -215,14 +229,32 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
       return;
     }
 
-    final zoom = _hasCenteredOnDriver ? _cameraZoom.clamp(15.5, 18.5) : 17.0;
+    final profile = NavigationCameraPolicy.profileFor(_smoothedSpeed);
+    final desiredBearing = widget.followHeading ? _normalizedHeading : 0.0;
+    _cameraBearing = _hasCenteredOnDriver
+        ? _approachHeading(_cameraBearing, desiredBearing, 42)
+        : desiredBearing;
+    final cameraTarget = widget.followHeading
+        ? NavigationCameraPolicy.lookAhead(
+            origin: location,
+            headingDegrees: _cameraBearing,
+            distanceMeters: profile.lookAheadMeters,
+          )
+        : location;
+    final zoom = _hasCenteredOnDriver
+        ? _approach(_cameraZoom, profile.zoom, 0.4)
+        : profile.zoom;
+    final desiredTilt = widget.followHeading ? profile.tilt : 0.0;
+    final tilt = _hasCenteredOnDriver
+        ? _approach(_cameraTilt, desiredTilt, 5)
+        : desiredTilt;
     _hasCenteredOnDriver = true;
     await _animateCamera(
       CameraPosition(
-        target: _latLng(location),
+        target: _latLng(cameraTarget),
         zoom: zoom,
-        bearing: widget.followHeading ? _normalizedHeading : 0,
-        tilt: 42,
+        bearing: _normalizeHeading(_cameraBearing),
+        tilt: tilt,
       ),
     );
   }
@@ -243,14 +275,19 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     if (controller == null) {
       return;
     }
+    final generation = ++_cameraAnimationGeneration;
     _programmaticCameraMove = true;
     try {
       await controller.animateCamera(
         CameraUpdate.newCameraPosition(position),
-        duration: _movementDuration,
+        duration: _cameraDuration,
       );
     } on StateError {
-      _programmaticCameraMove = false;
+      // The map can be disposed while a camera animation is finishing.
+    } finally {
+      if (generation == _cameraAnimationGeneration) {
+        _programmaticCameraMove = false;
+      }
     }
   }
 
@@ -271,10 +308,8 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
 
   void _onCameraMove(CameraPosition position) {
     _cameraZoom = position.zoom;
-  }
-
-  void _onCameraIdle() {
-    _programmaticCameraMove = false;
+    _cameraTilt = position.tilt;
+    _cameraBearing = position.bearing;
   }
 
   @override
@@ -289,6 +324,14 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
     final initial =
         widget.currentLocation ?? widget.destination ?? _darEsSalaam;
     final riderLocation = _animatedLocation ?? widget.currentLocation;
+    final initialProfile = NavigationCameraPolicy.profileFor(_smoothedSpeed);
+    final initialTarget = widget.currentLocation != null && widget.followHeading
+        ? NavigationCameraPolicy.lookAhead(
+            origin: widget.currentLocation!,
+            headingDegrees: _normalizedHeading,
+            distanceMeters: initialProfile.lookAheadMeters,
+          )
+        : initial;
 
     return Semantics(
       label: 'Live Google Maps navigation to ${widget.destinationLabel}',
@@ -296,15 +339,16 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
       child: GoogleMap(
         key: const ValueKey('active-google-map'),
         initialCameraPosition: CameraPosition(
-          target: _latLng(initial),
-          zoom: widget.currentLocation != null ? 17 : 15.5,
+          target: _latLng(initialTarget),
+          zoom: widget.currentLocation != null ? initialProfile.zoom : 15.5,
           bearing: widget.followHeading ? _normalizedHeading : 0,
-          tilt: widget.currentLocation != null ? 42 : 0,
+          tilt: widget.currentLocation != null && widget.followHeading
+              ? initialProfile.tilt
+              : 0,
         ),
         onMapCreated: _onMapCreated,
         onCameraMoveStarted: _onCameraMoveStarted,
         onCameraMove: _onCameraMove,
-        onCameraIdle: _onCameraIdle,
         mapType: MapType.normal,
         minMaxZoomPreference: const MinMaxZoomPreference(4, 20),
         compassEnabled: false,
@@ -317,8 +361,8 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
         buildingsEnabled: true,
         fortyFiveDegreeImageryEnabled: false,
         padding: EdgeInsets.only(
-          top: 148,
-          bottom: MediaQuery.sizeOf(context).height * 0.4,
+          top: 132,
+          bottom: MediaQuery.sizeOf(context).height * 0.28,
         ),
         markers: _markers(riderLocation),
         polylines: _polylines,
@@ -385,6 +429,32 @@ class _GoogleNavigationMapState extends State<GoogleNavigationMap>
 
   double get _normalizedHeading {
     return _normalizeHeading(widget.heading ?? _animatedHeading);
+  }
+
+  void _updateSmoothedSpeed(double? speedMetersPerSecond) {
+    final target = _safeSpeed(speedMetersPerSecond);
+    _smoothedSpeed = ui.lerpDouble(_smoothedSpeed, target, 0.35)!;
+  }
+
+  static double _safeSpeed(double? value) {
+    if (value == null || !value.isFinite || value < 0) {
+      return 0;
+    }
+    return value;
+  }
+
+  static double _approach(double current, double target, double maximumStep) {
+    final delta = (target - current).clamp(-maximumStep, maximumStep);
+    return current + delta;
+  }
+
+  static double _approachHeading(
+    double current,
+    double target,
+    double maximumStep,
+  ) {
+    final nearest = _nearestEquivalentHeading(current, target);
+    return _approach(current, nearest, maximumStep);
   }
 
   static double _nearestEquivalentHeading(double start, double target) {
