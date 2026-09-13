@@ -363,9 +363,13 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen>
                   destination: destination,
                   currentLocation: currentLocation,
                   route: _routeController.route,
-                  heading: _locationController.heading,
+                  heading:
+                      _locationController.latestDeviceLocation?.heading ??
+                      _locationController.heading,
                   speedMetersPerSecond:
                       _locationController.latestDeviceLocation?.speed,
+                  accuracyMeters:
+                      _locationController.latestDeviceLocation?.accuracy,
                   loadGoogleMap: widget.loadGoogleMap,
                   followDriver: _followDriver,
                   followHeading: _followHeading,

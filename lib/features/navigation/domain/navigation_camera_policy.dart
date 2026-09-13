@@ -26,9 +26,9 @@ abstract final class NavigationCameraPolicy {
     final easedProgress = math.pow(progress, 0.75).toDouble();
 
     return NavigationCameraProfile(
-      zoom: _lerp(18.1, 16.2, easedProgress),
-      tilt: _lerp(42, 55, progress),
-      lookAheadMeters: _lerp(22, 115, progress),
+      zoom: _lerp(18.8, 17.2, easedProgress),
+      tilt: _lerp(46, 56, progress),
+      lookAheadMeters: _lerp(14, 85, progress),
     );
   }
 
