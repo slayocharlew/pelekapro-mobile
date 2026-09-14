@@ -79,7 +79,7 @@ class PelekaProBrand extends StatelessWidget {
 class PelekaProMark extends StatelessWidget {
   const PelekaProMark({required this.size, super.key});
 
-  static const assetName = 'assets/branding/pelekapro_mark_foreground.png';
+  static const assetName = 'assets/branding/pelekapro_mobile.png';
 
   final double size;
 

@@ -220,15 +220,15 @@ flutter test
 PelekaPro uses Flutter's `MAJOR.MINOR.PATCH+BUILD` version format from
 `pubspec.yaml`:
 
-- `MAJOR.MINOR.PATCH` is the version visible to the driver, such as `1.0.1`.
-- `BUILD` is Android's internal `versionCode`, such as `2006`.
+- `MAJOR.MINOR.PATCH` is the version visible to the driver, such as `1.0.2`.
+- `BUILD` is Android's internal `versionCode`, such as `2007`.
 - Every APK installed as an update must use a build number greater than the
   previously installed build number. Never reuse or decrease it.
 - Use a patch increase for fixes, a minor increase for compatible features,
   and a major increase for a breaking product release.
 
-The current baseline is `1.0.1+2006`. The next patch update should therefore
-be `1.0.2+2007`. Change the `version:` line in `pubspec.yaml` before building;
+The current baseline is `1.0.2+2007`. The next patch update should therefore
+be `1.0.3+2008`. Change the `version:` line in `pubspec.yaml` before building;
 avoid overriding it at the command line so the source and APK stay consistent.
 
 Build a debug APK:
@@ -248,7 +248,7 @@ that contains both version values. For example:
 
 ```bash
 cp build/app/outputs/flutter-apk/app-debug.apk \
-  build/app/outputs/flutter-apk/PelekaPro-1.0.1-build2006-debug.apk
+  build/app/outputs/flutter-apk/PelekaPro-1.0.2-build2007-debug.apk
 ```
 
 For a substantially smaller APK for current ARM64 Android phones, build the
@@ -259,7 +259,7 @@ flutter build apk --release --target-platform android-arm64 \
   --dart-define=API_BASE_URL=https://YOUR_LARAVEL_ORIGIN \
   --dart-define=ROUTING_BASE_URL=https://YOUR_ROUTING_ORIGIN
 cp build/app/outputs/flutter-apk/app-release.apk \
-  build/app/outputs/flutter-apk/PelekaPro-1.0.1-build2006-arm64.apk
+  build/app/outputs/flutter-apk/PelekaPro-1.0.2-build2007-arm64.apk
 ```
 
 The current local release build is signed with the development certificate so
